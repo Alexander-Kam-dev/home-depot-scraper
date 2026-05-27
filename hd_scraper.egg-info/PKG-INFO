@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: hd_scraper
+Version: 0.1.0
+Summary: Home Depot product scraper
+Requires-Python: >=3.11
+Requires-Dist: playwright>=1.40.0
+Requires-Dist: httpx>=0.25.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: tenacity>=8.2.0

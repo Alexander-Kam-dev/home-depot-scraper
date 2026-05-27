@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+hd_scraper/__init__.py
+hd_scraper/__main__.py
+hd_scraper/bootstrap.py
+hd_scraper/csv_writer.py
+hd_scraper/models.py
+hd_scraper/scraper.py
+hd_scraper.egg-info/PKG-INFO
+hd_scraper.egg-info/SOURCES.txt
+hd_scraper.egg-info/dependency_links.txt
+hd_scraper.egg-info/entry_points.txt
+hd_scraper.egg-info/requires.txt
+hd_scraper.egg-info/top_level.txt
