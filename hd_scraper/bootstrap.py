@@ -43,6 +43,10 @@ async def setup_store_context(
         # Extract numeric part of store_id (e.g., "hd-0205" -> "0205")
         store_number = store_id.replace("hd-", "") if store_id.startswith("hd-") else store_id
         
+        # Validate store_number contains only digits to prevent URL injection
+        if not store_number.isdigit():
+            raise RuntimeError(f"Invalid store_id format: {store_id}. Must be numeric or hd-XXXX format.")
+        
         try:
             # Navigate to Home Depot
             await page.goto("https://www.homedepot.com", wait_until="networkidle")
@@ -66,8 +70,7 @@ async def setup_store_context(
             
             # Wait a moment for cookies to be set
             # Give Home Depot servers time to process store context before extraction
-            cookie_propagation_delay = 1.0  # seconds
-            await asyncio.sleep(cookie_propagation_delay)
+            await asyncio.sleep(1.0)
             
             # Verify store is active by checking if we can access store-specific content
             # This would typically involve checking page content or making an API call

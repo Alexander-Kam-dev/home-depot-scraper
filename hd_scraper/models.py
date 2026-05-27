@@ -1,7 +1,7 @@
 """Pydantic models for product data validation."""
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, field_validator, ConfigDict
 
@@ -19,9 +19,9 @@ class Product(BaseModel):
     image_url: str
     description: str
     features: list[str]
-    stock: Optional[str] = ""
-    aisle: Optional[str] = ""
-    bay: Optional[str] = ""
+    stock: str = ""
+    aisle: str = ""
+    bay: str = ""
 
     @field_validator("price")
     @classmethod

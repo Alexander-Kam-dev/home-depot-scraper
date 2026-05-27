@@ -196,8 +196,16 @@ class HomeDepotScraper:
         price_value = item.get("price") or item.get("regularPrice")
         if price_value is not None:
             price = str(price_value)
-            # Clean price - remove currency symbols, keep only digits and decimal
+            # Clean price - remove all non-digit/non-decimal characters first
             price = re.sub(r"[^\d.]", "", price)
+            # Ensure only one decimal point by keeping only first occurrence
+            if "." in price:
+                integer_part, _, decimal_part = price.partition(".")
+                # Remove decimals from decimal_part
+                decimal_part = re.sub(r"\.", "", decimal_part)
+                price = integer_part + ("." + decimal_part if decimal_part else "")
+            # Clean up: remove leading/trailing decimals
+            price = price.strip(".")
         else:
             price = ""
         
