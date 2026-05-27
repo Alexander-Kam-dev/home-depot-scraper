@@ -5,6 +5,9 @@ hd_scraper/__main__.py
 hd_scraper/bootstrap.py
 hd_scraper/csv_writer.py
 hd_scraper/models.py
+hd_scraper/pdp.py
+hd_scraper/plp.py
+hd_scraper/report.py
 hd_scraper/scraper.py
 hd_scraper.egg-info/PKG-INFO
 hd_scraper.egg-info/SOURCES.txt

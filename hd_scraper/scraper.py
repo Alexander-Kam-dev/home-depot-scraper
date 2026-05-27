@@ -1,30 +1,37 @@
 """Home Depot product scraper using httpx with retry logic."""
 
+import asyncio
 import json
+import logging
 import re
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .models import Product
 
+# Setup logging
+logger = logging.getLogger(__name__)
+
 
 class HomeDepotScraper:
-    """Scraper for Home Depot products with retry logic."""
+    """Scraper for Home Depot products with retry logic and concurrency control."""
 
     BASE_URL = "https://www.homedepot.com"
     STORE_ID = "hd-0205"
     
-    def __init__(self, cookies: Optional[dict[str, str]] = None):
+    def __init__(self, cookies: Optional[dict[str, str]] = None, max_workers: int = 5):
         """
         Initialize scraper with optional cookies from Playwright session.
         
         Args:
             cookies: Dictionary of cookies from Playwright context
+            max_workers: Maximum concurrent requests for enrichment
         """
         self.cookies = cookies or {}
+        self.max_workers = max_workers
         self.session = httpx.Client(
             base_url=self.BASE_URL,
             cookies=self.cookies,
@@ -36,6 +43,7 @@ class HomeDepotScraper:
             },
             timeout=30.0,
         )
+        self.blocked_count = 0
 
     @retry(
         stop=stop_after_attempt(3),
@@ -243,26 +251,31 @@ class HomeDepotScraper:
         """
         Scrape products from a Home Depot category URL.
         
+        Note: This is a sync wrapper. Use enrich_skus() for async enrichment.
+        
         Args:
             category_url: Full URL of the category page
             
         Returns:
             List of Product objects
         """
-        # Extract category path from URL for categorization
-        parsed_url = urlparse(category_url)
-        category_path = parsed_url.path.strip("/")
+        from . import plp
         
-        # Fetch the category page
         try:
+            # Extract SKUs from PLP
+            skus, category_path = plp.get_skus(category_url, self.session, limit=50)
+            logger.info(f"Found {len(skus)} SKUs")
+            
+            # Note: Enrichment is async and must be called with asyncio.run()
+            # For now, return partial products from basic parsing
             html = self._fetch_page(category_url)
-        except httpx.HTTPError as e:
-            raise RuntimeError(f"Failed to fetch category URL: {e}") from e
+            products = self.extract_products_from_html(html, category_path)
+            
+            return products
         
-        # Extract products from HTML
-        products = self.extract_products_from_html(html, category_path)
-        
-        return products
+        except Exception as e:
+            logger.error(f"Failed to scrape category: {e}")
+            raise RuntimeError(f"Failed to scrape category URL: {e}") from e
 
     def close(self):
         """Close the HTTP session."""
@@ -275,3 +288,91 @@ class HomeDepotScraper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
+    
+    async def enrich_skus(
+        self,
+        skus: list[str],
+        category_path: str,
+        limit: int = 50,
+        debug: bool = False,
+    ) -> list[Product]:
+        """
+        Enrich SKUs with full product details using bounded concurrency.
+        
+        Args:
+            skus: List of SKUs to enrich
+            category_path: Category path for all products
+            limit: Maximum number of products to return
+            debug: Whether to save debug artifacts
+            
+        Returns:
+            List of enriched Product objects (up to limit)
+        """
+        # Use semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(self.max_workers)
+        
+        # Create enrichment tasks
+        tasks = [
+            self._enrich_sku(sku, category_path, semaphore, debug)
+            for sku in skus[:int(limit * 1.5)]  # Try more than needed
+        ]
+        
+        # Run enrichment with timeout
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out exceptions and None values
+        products = [p for p in results if isinstance(p, Product) and p]
+        
+        # Sort by ID and return up to limit
+        return sorted(products, key=lambda p: p.id)[:limit]
+    
+    async def _enrich_sku(
+        self,
+        sku: str,
+        category_path: str,
+        semaphore: asyncio.Semaphore,
+        debug: bool = False,
+    ) -> Optional[Product]:
+        """
+        Enrich a single SKU with product details.
+        
+        Args:
+            sku: SKU to enrich
+            category_path: Category path
+            semaphore: Concurrency semaphore
+            debug: Whether to save debug artifacts
+            
+        Returns:
+            Product object or None if enrichment fails
+        """
+        async with semaphore:
+            try:
+                # Fetch product details (sync function)
+                details = pdp.fetch_product_details(sku, self.session)
+                
+                if not details.get("name"):
+                    logger.warning(f"No name found for SKU {sku}")
+                    return None
+                
+                # Create product
+                product = Product(
+                    id=sku,
+                    name=details.get("name", ""),
+                    price=details.get("price", ""),
+                    category_path=category_path,
+                    store_id=self.STORE_ID,
+                    image_url=details.get("image_url", ""),
+                    description=details.get("description", ""),
+                    features=details.get("features", []),
+                    stock=details.get("stock", ""),
+                    aisle=details.get("aisle", ""),
+                    bay=details.get("bay", ""),
+                )
+                
+                logger.info(f"Enriched SKU {sku}: {product.name}")
+                return product
+            
+            except Exception as e:
+                logger.error(f"Failed to enrich SKU {sku}: {e}")
+                self.blocked_count += 1
+                return None
