@@ -226,9 +226,9 @@ class HomeDepotScraper:
             image_url=image_url,
             description=description,
             features=features,
-            stock=stock if stock else "",
-            aisle=aisle if aisle else "",
-            bay=bay if bay else "",
+            stock=stock,
+            aisle=aisle,
+            bay=bay,
         )
 
     def scrape_category(self, category_url: str) -> list[Product]:

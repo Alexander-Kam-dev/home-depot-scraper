@@ -65,7 +65,9 @@ async def setup_store_context(
             )
             
             # Wait a moment for cookies to be set
-            await asyncio.sleep(1)
+            # Give Home Depot servers time to process store context before extraction
+            COOKIE_PROPAGATION_DELAY = 1.0  # seconds
+            await asyncio.sleep(COOKIE_PROPAGATION_DELAY)
             
             # Verify store is active by checking if we can access store-specific content
             # This would typically involve checking page content or making an API call
