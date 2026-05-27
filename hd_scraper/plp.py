@@ -96,13 +96,13 @@ def _extract_category_path(url: str) -> str:
             if part.startswith("N-"):
                 break
             
-            # Format: capitalize and replace hyphens
-            formatted = part.replace("-", " ").title()
+            # Format: replace hyphens, capitalize each word
+            formatted = " ".join(word.capitalize() for word in part.split("-"))
             category_parts.append(formatted)
         
-        if not category_parts:
+        if not category_parts and len(parts) > 1:
             # Try to extract from the first part
-            formatted = parts[0].replace("-", " ").title()
+            formatted = " ".join(word.capitalize() for word in parts[0].split("-"))
             return formatted
         
         return " - ".join(category_parts) if category_parts else "products"
@@ -131,38 +131,60 @@ def _fetch_from_api(
         # Try common Home Depot API patterns
         parsed = urlparse(category_url)
         
-        # Extract category ID from URL parameters
-        params = parse_qs(parsed.query)
-        
-        # Common API endpoint patterns
-        api_endpoints = [
-            "/api/products/search",
-            "/api/v1/products",
-            "/api/graphql",
-        ]
-        
-        for endpoint in api_endpoints:
-            try:
-                # Build API call with pagination
-                api_url = f"https://www.homedepot.com{endpoint}"
-                
-                # Try with common parameters
-                api_params = {
-                    "offset": (page - 1) * 24,
-                    "limit": 24,
-                    "searchTerm": "",
-                }
-                
-                response = httpx_client.get(api_url, params=api_params, timeout=10.0)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    skus = _extract_skus_from_api_response(data)
-                    if skus:
-                        return skus
+        # Try GraphQL endpoint
+        try:
+            graphql_url = "https://www.homedepot.com/apiservice/v1/graphql"
             
-            except Exception:
-                continue
+            # Extract category parameters from original URL
+            query_params = parse_qs(parsed.query)
+            
+            # Build GraphQL query
+            graphql_payload = {
+                "operationName": "GetSearchProducts",
+                "variables": {
+                    "searchInput": {
+                        "query": "",
+                        "offset": (page - 1) * 24,
+                        "limit": 24,
+                    }
+                },
+                "query": "query GetSearchProducts($searchInput: SearchInput!) { search(input: $searchInput) { products { productId } } }"
+            }
+            
+            response = httpx_client.post(
+                graphql_url,
+                json=graphql_payload,
+                timeout=10.0,
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                skus = _extract_skus_from_api_response(data)
+                if skus:
+                    return skus
+        
+        except Exception:
+            pass
+        
+        # Try REST API endpoint
+        try:
+            api_url = "https://www.homedepot.com/api/v1/products"
+            
+            api_params = {
+                "offset": (page - 1) * 24,
+                "limit": 24,
+            }
+            
+            response = httpx_client.get(api_url, params=api_params, timeout=10.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                skus = _extract_skus_from_api_response(data)
+                if skus:
+                    return skus
+        
+        except Exception:
+            pass
         
         return []
     
@@ -216,6 +238,7 @@ def _extract_skus_from_html(html: str) -> list[str]:
         r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>',
         r'<script[^>]*>(.*?"productId".*?)</script>',
         r'window\.__INITIAL_STATE__\s*=\s*({.*?});',
+        r'<script[^>]*type="application/json"[^>]*>(.*?)</script>',
     ]
     
     for pattern in state_patterns:
@@ -228,22 +251,31 @@ def _extract_skus_from_html(html: str) -> list[str]:
                     found_skus = _find_skus_in_json(data)
                     skus.extend(found_skus)
                 except json.JSONDecodeError:
+                    # Not JSON, try text extraction
                     pass
         except Exception:
             pass
     
     # Fallback: Extract from common product data attributes
     # Pattern: data-productid="123456"
-    sku_pattern = r'data-productid=["\']([^\'"]+)["\']'
+    sku_pattern = r'(?:data-|data["\']?\s*[=:]\s*["\']?)productid["\']?\s*[=:]\s*["\']?([^\'">\s]+)'
     found = re.findall(sku_pattern, html, re.IGNORECASE)
     skus.extend(found)
     
-    # Pattern: class="productid-123456"
-    sku_pattern = r'class="[^"]*productid-([^"\s]+)[^"]*"'
-    found = re.findall(sku_pattern, html, re.IGNORECASE)
+    # Pattern: "productId":"123456" or "productId": 123456
+    sku_pattern = r'["\']productId["\']:\s*["\']?(\d+)["\']?'
+    found = re.findall(sku_pattern, html)
     skus.extend(found)
     
-    return list(set(skus))  # Remove duplicates
+    # Pattern: "sku":"123456" or "sku": 123456
+    sku_pattern = r'["\']sku["\']:\s*["\']?(\d+)["\']?'
+    found = re.findall(sku_pattern, html)
+    skus.extend(found)
+    
+    # Remove duplicates and empty strings
+    skus = list(set(s for s in skus if s and s.strip()))
+    
+    return skus
 
 
 def _find_skus_in_json(data: dict, _visited: Optional[set] = None) -> list[str]:
