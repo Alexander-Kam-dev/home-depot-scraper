@@ -191,10 +191,15 @@ class HomeDepotScraper:
         # Extract fields with fallbacks
         product_id = item.get("id") or item.get("productId") or item.get("sku")
         name = item.get("name") or item.get("title") or ""
-        price = str(item.get("price") or item.get("regularPrice") or "")
         
-        # Clean price - remove currency symbols
-        price = re.sub(r"[^\d.]", "", price)
+        # Handle price - convert to string and clean
+        price_value = item.get("price") or item.get("regularPrice")
+        if price_value is not None:
+            price = str(price_value)
+            # Clean price - remove currency symbols, keep only digits and decimal
+            price = re.sub(r"[^\d.]", "", price)
+        else:
+            price = ""
         
         image_url = item.get("image") or item.get("imageUrl") or ""
         description = item.get("description") or ""

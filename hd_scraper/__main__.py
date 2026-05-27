@@ -5,7 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from .bootstrap import setup_store_context, get_cookies_dict
+from .bootstrap import setup_store_context, get_cookies_dict, cleanup_playwright
 from .scraper import HomeDepotScraper
 from .csv_writer import write_products_csv
 
@@ -74,6 +74,7 @@ async def _async_main(args):
         # Close Playwright (we now have cookies for httpx)
         await context.close()
         await browser.close()
+        await cleanup_playwright()
         context = None
         browser = None
         
@@ -99,6 +100,7 @@ async def _async_main(args):
             await context.close()
         if browser:
             await browser.close()
+        await cleanup_playwright()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,11 @@
 import asyncio
 from typing import Optional
 
-from playwright.async_api import async_playwright, Browser, BrowserContext
+from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
+
+
+# Store playwright instance for cleanup
+_playwright_instance: Optional[Playwright] = None
 
 
 async def setup_store_context(
@@ -14,7 +18,8 @@ async def setup_store_context(
     Bootstrap a Playwright session with store context for Home Depot.
     
     Sets the store context to the specified physical store before scraping.
-    Note: The returned browser and context must be closed by the caller.
+    
+    IMPORTANT: Call cleanup_playwright() when done with the returned browser and context.
     
     Args:
         store_id: Home Depot store ID (default: hd-0205)
@@ -26,10 +31,12 @@ async def setup_store_context(
     Raises:
         RuntimeError: If store context setup fails
     """
-    playwright = await async_playwright().start()
+    global _playwright_instance
+    
+    _playwright_instance = await async_playwright().start()
     
     try:
-        browser = await playwright.chromium.launch(headless=headless)
+        browser = await _playwright_instance.chromium.launch(headless=headless)
         context = await browser.new_context()
         page = await context.new_page()
         
@@ -69,11 +76,23 @@ async def setup_store_context(
         except Exception as e:
             await context.close()
             await browser.close()
-            await playwright.stop()
+            await cleanup_playwright()
             raise RuntimeError(f"Failed to setup store context: {e}") from e
     except Exception as e:
-        await playwright.stop()
+        await cleanup_playwright()
         raise
+
+
+async def cleanup_playwright() -> None:
+    """
+    Clean up the global Playwright instance.
+    
+    Call this after closing the browser and context.
+    """
+    global _playwright_instance
+    if _playwright_instance:
+        await _playwright_instance.stop()
+        _playwright_instance = None
 
 
 async def get_cookies_dict(context: BrowserContext) -> dict[str, str]:
