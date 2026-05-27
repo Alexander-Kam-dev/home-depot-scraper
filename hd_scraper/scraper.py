@@ -126,18 +126,21 @@ class HomeDepotScraper:
         
         return products
 
-    def _find_items_in_data(self, data: dict) -> list[dict]:
+    def _find_items_in_data(self, data: dict, _visited_paths: Optional[set] = None) -> list[dict]:
         """
         Recursively find product items in nested JSON structure.
         
         Args:
             data: JSON data to search
+            _visited_paths: Internal set to track visited paths and avoid infinite recursion
             
         Returns:
             List of product item dictionaries
         """
+        if _visited_paths is None:
+            _visited_paths = set()
+        
         items = []
-        seen_ids = set()  # Track already-added items to avoid duplicates
         
         if isinstance(data, dict):
             # Check for common product array keys
@@ -145,29 +148,32 @@ class HomeDepotScraper:
                 if key in data and isinstance(data[key], list):
                     for item in data[key]:
                         # Only add if it's a dict with product-like data
-                        if isinstance(item, dict):
-                            item_id = id(item)
-                            if item_id not in seen_ids:
-                                items.append(item)
-                                seen_ids.add(item_id)
+                        if isinstance(item, dict) and any(
+                            k in item for k in ["id", "productId", "sku", "name", "title"]
+                        ):
+                            items.append(item)
             
             # Recursively search nested structures (but skip already-processed keys)
             for key, value in data.items():
                 if key not in ["products", "items", "results", "data"]:
                     if isinstance(value, (dict, list)):
-                        items.extend(self._find_items_in_data(value))
+                        # Create path identifier to avoid revisiting same structures
+                        path_id = f"{id(value)}_{key}"
+                        if path_id not in _visited_paths:
+                            _visited_paths.add(path_id)
+                            items.extend(self._find_items_in_data(value, _visited_paths))
         
         elif isinstance(data, list):
-            for item in data:
+            for idx, item in enumerate(data):
                 if isinstance(item, dict) and any(
                     k in item for k in ["id", "productId", "sku"]
                 ):
-                    item_id = id(item)
-                    if item_id not in seen_ids:
-                        items.append(item)
-                        seen_ids.add(item_id)
+                    items.append(item)
                 elif isinstance(item, (dict, list)):
-                    items.extend(self._find_items_in_data(item))
+                    path_id = f"{id(item)}_{idx}"
+                    if path_id not in _visited_paths:
+                        _visited_paths.add(path_id)
+                        items.extend(self._find_items_in_data(item, _visited_paths))
         
         return items
 

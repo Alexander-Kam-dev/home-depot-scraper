@@ -50,7 +50,7 @@ python -m hd_scraper --category-url "https://www.homedepot.com/c/..." --output p
 python -m hd_scraper \
   --category-url "https://www.homedepot.com/c/Tools/Hand-Tools" \
   --output my_products.csv \
-  --store-id 0205
+  --store-id hd-0205
 ```
 
 ## Output Format

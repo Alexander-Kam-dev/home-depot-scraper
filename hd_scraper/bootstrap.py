@@ -3,7 +3,7 @@
 import asyncio
 from typing import Optional
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
+from playwright.async_api import async_playwright, Browser, BrowserContext
 
 
 async def setup_store_context(
@@ -14,6 +14,7 @@ async def setup_store_context(
     Bootstrap a Playwright session with store context for Home Depot.
     
     Sets the store context to the specified physical store before scraping.
+    Note: The returned browser and context must be closed by the caller.
     
     Args:
         store_id: Home Depot store ID (default: hd-0205)
@@ -25,10 +26,9 @@ async def setup_store_context(
     Raises:
         RuntimeError: If store context setup fails
     """
-    playwright: Optional[Playwright] = None
+    playwright = await async_playwright().start()
     
     try:
-        playwright = await async_playwright().start()
         browser = await playwright.chromium.launch(headless=headless)
         context = await browser.new_context()
         page = await context.new_page()
@@ -69,12 +69,11 @@ async def setup_store_context(
         except Exception as e:
             await context.close()
             await browser.close()
-            raise RuntimeError(f"Failed to setup store context: {e}") from e
-    
-    finally:
-        # Ensure playwright is properly stopped
-        if playwright:
             await playwright.stop()
+            raise RuntimeError(f"Failed to setup store context: {e}") from e
+    except Exception as e:
+        await playwright.stop()
+        raise
 
 
 async def get_cookies_dict(context: BrowserContext) -> dict[str, str]:
