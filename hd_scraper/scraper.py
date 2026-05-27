@@ -137,24 +137,35 @@ class HomeDepotScraper:
             List of product item dictionaries
         """
         items = []
+        seen_ids = set()  # Track already-added items to avoid duplicates
         
         if isinstance(data, dict):
             # Check for common product array keys
             for key in ["products", "items", "results", "data"]:
                 if key in data and isinstance(data[key], list):
-                    items.extend(data[key])
+                    for item in data[key]:
+                        # Only add if it's a dict with product-like data
+                        if isinstance(item, dict):
+                            item_id = id(item)
+                            if item_id not in seen_ids:
+                                items.append(item)
+                                seen_ids.add(item_id)
             
-            # Recursively search nested structures
-            for value in data.values():
-                if isinstance(value, (dict, list)):
-                    items.extend(self._find_items_in_data(value))
+            # Recursively search nested structures (but skip already-processed keys)
+            for key, value in data.items():
+                if key not in ["products", "items", "results", "data"]:
+                    if isinstance(value, (dict, list)):
+                        items.extend(self._find_items_in_data(value))
         
         elif isinstance(data, list):
             for item in data:
                 if isinstance(item, dict) and any(
                     k in item for k in ["id", "productId", "sku"]
                 ):
-                    items.append(item)
+                    item_id = id(item)
+                    if item_id not in seen_ids:
+                        items.append(item)
+                        seen_ids.add(item_id)
                 elif isinstance(item, (dict, list)):
                     items.extend(self._find_items_in_data(item))
         

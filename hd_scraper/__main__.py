@@ -28,8 +28,8 @@ def main():
     )
     parser.add_argument(
         "--store-id",
-        default="0205",
-        help="Home Depot store ID (default: 0205)",
+        default="hd-0205",
+        help="Home Depot store ID (default: hd-0205)",
     )
     parser.add_argument(
         "--no-headless",

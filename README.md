@@ -41,9 +41,8 @@ python -m hd_scraper --category-url "https://www.homedepot.com/c/..." --output p
 
 - `--category-url` (required): Home Depot category URL to scrape
 - `--output` (optional): Output CSV file path (default: products.csv)
-- `--store-id` (optional): Home Depot store ID (default: 0205)
-- `--headless` (optional): Run browser in headless mode (default: true)
-- `--no-headless`: Run browser in non-headless mode
+- `--store-id` (optional): Home Depot store ID (default: hd-0205)
+- `--no-headless` (optional): Run browser in non-headless mode (default: headless)
 
 ### Example
 
