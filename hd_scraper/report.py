@@ -13,6 +13,8 @@ def generate_report(
     blocked_count: int = 0,
     store_verified: bool = False,
     store_verification_note: str = "",
+    proxy_enabled: bool = False,
+    store_number: str = "0205",
     output_path: str | Path = "run_report.json",
 ) -> Path:
     """
@@ -26,6 +28,8 @@ def generate_report(
         blocked_count: Number of responses detected as blocked/captcha
         store_verified: Whether store context was successfully verified
         store_verification_note: Details about store verification
+        proxy_enabled: Whether proxy was used
+        store_number: The store number (e.g., "0205")
         output_path: Path to save the report
         
     Returns:
@@ -42,6 +46,8 @@ def generate_report(
         "blocked_count": blocked_count,
         "store_verified": store_verified,
         "store_verification_note": store_verification_note,
+        "proxy_enabled": proxy_enabled,
+        "store_number": store_number,
     }
     
     with open(output_path, "w", encoding="utf-8") as f:

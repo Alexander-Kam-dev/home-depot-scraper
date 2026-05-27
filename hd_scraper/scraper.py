@@ -11,6 +11,8 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .models import Product
+from .block_detector import BlockDetector
+from . import pdp
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -22,27 +24,37 @@ class HomeDepotScraper:
     BASE_URL = "https://www.homedepot.com"
     STORE_ID = "hd-0205"
     
-    def __init__(self, cookies: Optional[dict[str, str]] = None, max_workers: int = 5):
+    def __init__(self, cookies: Optional[dict[str, str]] = None, max_workers: int = 5, proxy_url: Optional[str] = None):
         """
         Initialize scraper with optional cookies from Playwright session.
         
         Args:
             cookies: Dictionary of cookies from Playwright context
             max_workers: Maximum concurrent requests for enrichment
+            proxy_url: Optional proxy URL (e.g., "http://proxy.example.com:8080")
         """
         self.cookies = cookies or {}
         self.max_workers = max_workers
-        self.session = httpx.Client(
-            base_url=self.BASE_URL,
-            cookies=self.cookies,
-            headers={
+        self.proxy_url = proxy_url
+        
+        # Configure client options
+        client_options = {
+            "base_url": self.BASE_URL,
+            "cookies": self.cookies,
+            "headers": {
                 "User-Agent": (
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
                 ),
             },
-            timeout=30.0,
-        )
+            "timeout": 30.0,
+        }
+        
+        # Add proxy if provided
+        if proxy_url:
+            client_options["proxies"] = proxy_url
+        
+        self.session = httpx.Client(**client_options)
         self.blocked_count = 0
 
     @retry(
@@ -348,7 +360,13 @@ class HomeDepotScraper:
         async with semaphore:
             try:
                 # Fetch product details (sync function)
-                details = pdp.fetch_product_details(sku, self.session)
+                details, is_blocked, block_reason = pdp.fetch_product_details(sku, self.session)
+                
+                # Increment blocked_count only if actual block was detected
+                if is_blocked:
+                    self.blocked_count += 1
+                    logger.warning(f"Block detected for SKU {sku}: {block_reason}")
+                    return None
                 
                 if not details.get("name"):
                     logger.warning(f"No name found for SKU {sku}")
@@ -374,5 +392,5 @@ class HomeDepotScraper:
             
             except Exception as e:
                 logger.error(f"Failed to enrich SKU {sku}: {e}")
-                self.blocked_count += 1
+                # Don't count as blocked - only count actual block detection signals
                 return None

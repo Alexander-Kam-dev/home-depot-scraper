@@ -53,6 +53,7 @@ async def setup_store_context(
     headless: bool = True,
     debug: bool = False,
     plp_url: Optional[str] = None,
+    proxy_url: Optional[str] = None,
 ) -> tuple[Browser, BrowserContext]:
     """
     Bootstrap a Playwright session with store context for Home Depot.
@@ -66,6 +67,7 @@ async def setup_store_context(
         headless: Whether to run browser in headless mode
         debug: Whether to capture network traffic for debugging
         plp_url: Optional PLP URL to load for network capture
+        proxy_url: Optional proxy URL (e.g., "http://proxy.example.com:8080")
         
     Returns:
         Tuple of (browser, context) for use with httpx cookie extraction
@@ -79,7 +81,12 @@ async def setup_store_context(
     _playwright_instance = await async_playwright().start()
     
     try:
-        browser = await _playwright_instance.chromium.launch(headless=headless)
+        # Configure launch options with optional proxy
+        launch_options = {"headless": headless}
+        if proxy_url:
+            launch_options["proxy"] = {"server": proxy_url}
+        
+        browser = await _playwright_instance.chromium.launch(**launch_options)
         context = await browser.new_context()
         page = await context.new_page()
         
@@ -167,7 +174,11 @@ async def get_cookies_dict(context: BrowserContext) -> dict[str, str]:
 
 async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tuple[bool, str]:
     """
-    Verify that the store context is active.
+    Verify that the store context is active with strict, evidence-based checks.
+    
+    Checks for actual evidence of store 0205:
+    - Cookie or localStorage value equals the store number
+    - UI text on homepage includes the store number
     
     Args:
         context: Playwright browser context
@@ -179,46 +190,56 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
     store_number = store_id.replace("hd-", "") if store_id.startswith("hd-") else store_id
     
     try:
-        # Get cookies to check for store-related cookies
+        # Check 1: Look for cookies with exact store number value
         cookies = await context.cookies()
-        cookie_names = {c["name"] for c in cookies}
+        for cookie in cookies:
+            if cookie["value"] == store_number:
+                # Found exact match - strong evidence
+                return True, f"Store verified via cookie '{cookie['name']}' = {store_number}"
         
-        # Check for common Home Depot store cookies
-        store_related_cookies = {c["name"]: c["value"] for c in cookies 
-                               if "store" in c["name"].lower()}
-        
-        if store_related_cookies:
-            verification_note = f"Store context verified via cookies: {', '.join(store_related_cookies.keys())}"
-            return True, verification_note
-        
-        # If no store cookies, check localStorage via page
+        # Check 2: Check localStorage via page for exact store number
         page = None
         try:
             page = await context.new_page()
             await page.goto("https://www.homedepot.com", wait_until="networkidle", timeout=30000)
             
-            store_context = await page.evaluate("""
-                () => ({
-                    storeId: localStorage.getItem('storeId'),
-                    storeNumber: localStorage.getItem('storeNumber'),
-                })
+            # Check localStorage values
+            storage_values = await page.evaluate("""
+                () => {
+                    const values = {};
+                    // Check multiple possible keys
+                    const keys = ['storeId', 'storeNumber', 'store_id', 'store_number'];
+                    for (const key of keys) {
+                        values[key] = localStorage.getItem(key);
+                    }
+                    return values;
+                }
             """)
             
-            if store_context.get("storeNumber") == store_number:
-                return True, f"Store context verified via localStorage: storeNumber={store_number}"
+            for key, value in storage_values.items():
+                if value and value.strip() == store_number:
+                    return True, f"Store verified via localStorage '{key}' = {value}"
             
-            if store_context.get("storeId") == store_number:
-                return True, f"Store context verified via localStorage: storeId={store_number}"
+            # Check 3: Look for store UI text on the page (e.g., "Store #0205")
+            page_text = await page.evaluate("() => document.body.innerText")
+            if page_text and store_number in page_text:
+                # Do a more specific check for store UI patterns
+                if any(pattern in page_text for pattern in [
+                    f"Store #{store_number}",
+                    f"store {store_number}",
+                    f"#{store_number}",
+                    f" {store_number} "
+                ]):
+                    return True, f"Store verified via UI text matching store number {store_number}"
             
-            return False, f"Store context mismatch: expected {store_number}, got {store_context}"
+            return False, f"No evidence found for store {store_number} in cookies, storage, or UI text"
         
         finally:
             if page:
                 await page.close()
     
     except Exception as e:
-        return False, f"Store verification failed: {str(e)}"
-
+        return False, f"Store verification error: {str(e)}"
 
 def save_network_log(output_path: str | Path = "artifacts/network.jsonl") -> None:
     """

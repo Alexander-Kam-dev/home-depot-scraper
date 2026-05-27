@@ -6,11 +6,13 @@ from typing import Optional
 
 import httpx
 
+from .block_detector import BlockDetector
+
 
 def fetch_product_details(
     sku: str,
     httpx_client: httpx.Client,
-) -> dict:
+) -> tuple[dict, bool, str]:
     """
     Fetch enriched product details for a SKU.
     
@@ -19,7 +21,7 @@ def fetch_product_details(
         httpx_client: Configured httpx client with cookies
         
     Returns:
-        Dictionary with product details (name, price, description, features, image_url, stock, aisle, bay)
+        Tuple of (details: dict, is_blocked: bool, block_reason: str)
     """
     details = {
         "name": "",
@@ -34,22 +36,28 @@ def fetch_product_details(
     
     try:
         # Try API endpoint first
-        api_details = _fetch_from_api(sku, httpx_client)
+        api_details, is_blocked, reason = _fetch_from_api(sku, httpx_client)
+        if is_blocked:
+            return details, True, reason
+        
         if api_details:
             details.update(api_details)
-            return details
+            return details, False, ""
         
         # Fallback to HTML scraping
-        html_details = _fetch_from_html(sku, httpx_client)
+        html_details, is_blocked, reason = _fetch_from_html(sku, httpx_client)
+        if is_blocked:
+            return details, True, reason
+        
         details.update(html_details)
-        return details
+        return details, False, ""
     
     except Exception as e:
-        # Return partial details on error
-        return details
+        # Return partial details on error (not counted as block)
+        return details, False, ""
 
 
-def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:
+def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> tuple[dict, bool, str]:
     """
     Try to fetch product details from Home Depot API.
     
@@ -58,7 +66,7 @@ def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:
         httpx_client: Configured httpx client
         
     Returns:
-        Dictionary with product details, or empty dict if API unavailable
+        Tuple of (details: dict, is_blocked: bool, block_reason: str)
     """
     details = {}
     
@@ -74,19 +82,24 @@ def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:
                 url = f"https://www.homedepot.com{endpoint}"
                 response = httpx_client.get(url, timeout=10.0)
                 
+                # Check for block conditions
+                is_blocked, block_reason = BlockDetector.is_blocked(response, endpoint)
+                if is_blocked:
+                    return {}, True, block_reason
+                
                 if response.status_code == 200:
                     data = response.json()
                     details = _parse_api_response(data)
                     if details.get("name"):
-                        return details
+                        return details, False, ""
             
             except Exception:
                 continue
         
-        return {}
+        return {}, False, ""
     
     except Exception:
-        return {}
+        return {}, False, ""
 
 
 def _parse_api_response(data: dict) -> dict:
@@ -150,7 +163,7 @@ def _parse_api_response(data: dict) -> dict:
     return details
 
 
-def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
+def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> tuple[dict, bool, str]:
     """
     Fetch product details from HTML (fallback method).
     
@@ -159,7 +172,7 @@ def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
         httpx_client: Configured httpx client
         
     Returns:
-        Dictionary with extracted details
+        Tuple of (details: dict, is_blocked: bool, block_reason: str)
     """
     details = {
         "name": "",
@@ -177,8 +190,13 @@ def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
         url = f"https://www.homedepot.com/p/{sku}"
         response = httpx_client.get(url, timeout=10.0)
         
+        # Check for block conditions
+        is_blocked, block_reason = BlockDetector.is_blocked(response, f"/p/{sku}")
+        if is_blocked:
+            return details, True, block_reason
+        
         if response.status_code != 200:
-            return details
+            return details, False, ""
         
         html = response.text
         
@@ -220,10 +238,10 @@ def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
         if json_match:
             details["stock"] = json_match.group(1)
         
-        return details
+        return details, False, ""
     
     except Exception:
-        return details
+        return details, False, ""
 
 
 def _clean_price(price_str: str) -> str:

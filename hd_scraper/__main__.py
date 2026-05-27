@@ -10,7 +10,7 @@ from pathlib import Path
 from .bootstrap import setup_store_context, get_cookies_dict, cleanup_playwright, verify_store, save_network_log
 from .scraper import HomeDepotScraper
 from .csv_writer import write_products_csv
-from . import plp, report
+from . import plp, report, config
 
 # Setup logging
 logging.basicConfig(
@@ -76,7 +76,16 @@ def main():
 
 async def _async_main(args):
     """Async main function for scraping."""
+    # Load proxy configuration
+    proxy_url = config.get_proxy_url()
+    proxy_enabled = proxy_url is not None
+    
+    # Extract store number from store_id
+    store_number = args.store_id.replace("hd-", "") if args.store_id.startswith("hd-") else args.store_id
+    
     print(f"Setting up Playwright session for store {args.store_id}...")
+    if proxy_enabled:
+        print(f"Proxy enabled: {proxy_url}")
     print(f"Debug mode: {'enabled' if args.debug else 'disabled'}")
     
     browser = None
@@ -87,12 +96,13 @@ async def _async_main(args):
     blocked_count = 0
     
     try:
-        # Setup browser context with store information
+        # Setup browser context with store information and proxy
         browser, context = await setup_store_context(
             store_id=args.store_id,
             headless=args.headless,
             debug=args.debug,
             plp_url=args.category_url if args.debug else None,
+            proxy_url=proxy_url,
         )
         print("✓ Store context established")
         
@@ -119,9 +129,9 @@ async def _async_main(args):
         context = None
         browser = None
         
-        # Create scraper with cookies
+        # Create scraper with cookies and proxy
         print(f"Starting scraper for: {args.category_url}")
-        scraper = HomeDepotScraper(cookies=cookies, max_workers=5)
+        scraper = HomeDepotScraper(cookies=cookies, max_workers=5, proxy_url=proxy_url)
         
         try:
             # Extract SKUs from PLP
@@ -151,12 +161,14 @@ async def _async_main(args):
             blocked_count = scraper.blocked_count
             
             print(f"✓ Enriched {len(products)} products")
+            if blocked_count > 0:
+                print(f"⚠ Blocked responses detected: {blocked_count}")
             
             # Write to CSV
             output_path = write_products_csv(products, args.output)
             print(f"✓ Wrote {len(products)} products to {output_path}")
             
-            # Generate run report
+            # Generate run report with proxy and store info
             report_path = report.generate_report(
                 category_url=args.category_url,
                 requested_limit=args.limit,
@@ -165,6 +177,8 @@ async def _async_main(args):
                 blocked_count=blocked_count,
                 store_verified=store_verified,
                 store_verification_note=store_verification_note,
+                proxy_enabled=proxy_enabled,
+                store_number=store_number,
                 output_path="run_report.json",
             )
             print(f"✓ Generated report: {report_path}")
