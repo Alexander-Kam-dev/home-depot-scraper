@@ -32,16 +32,11 @@ def main():
         help="Home Depot store ID (default: 0205)",
     )
     parser.add_argument(
-        "--headless",
-        action="store_true",
-        default=True,
-        help="Run browser in headless mode (default: true)",
-    )
-    parser.add_argument(
         "--no-headless",
         dest="headless",
         action="store_false",
-        help="Run browser in non-headless mode",
+        default=True,
+        help="Run browser in non-headless mode (default: headless mode)",
     )
     
     args = parser.parse_args()

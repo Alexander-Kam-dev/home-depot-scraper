@@ -26,9 +26,22 @@ class Product(BaseModel):
     @field_validator("price")
     @classmethod
     def validate_price(cls, v: str) -> str:
-        """Ensure price contains only digits and decimal point."""
-        if v and not all(c.isdigit() or c == "." for c in v):
+        """Ensure price contains only digits and decimal point in valid format."""
+        if not v:  # Allow empty strings
+            return v
+        
+        # Reject if not all characters are digits or decimal point
+        if not all(c.isdigit() or c == "." for c in v):
             raise ValueError("price must contain only digits and decimal point")
+        
+        # Reject if there are multiple decimal points
+        if v.count(".") > 1:
+            raise ValueError("price cannot have multiple decimal points")
+        
+        # Reject if it's only a decimal point or has no digits
+        if not any(c.isdigit() for c in v):
+            raise ValueError("price must contain at least one digit")
+        
         return v
 
     def to_csv_row(self) -> dict[str, Any]:
