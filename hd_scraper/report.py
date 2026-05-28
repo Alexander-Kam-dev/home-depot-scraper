@@ -48,10 +48,12 @@ def generate_report(
         "store_verification_note": store_verification_note,
     }
     
-    # Add optional fields
+    # Add optional fields (only when they have meaningful non-default values)
+    # proxy_enabled only added if True (otherwise defaults to False/absent)
     if proxy_enabled:
         report["proxy_enabled"] = proxy_enabled
     
+    # store_number only added if provided (otherwise absent from report)
     if store_number:
         report["store_number"] = store_number
     

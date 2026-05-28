@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
 
@@ -13,7 +13,7 @@ from . import config
 logger = logging.getLogger(__name__)
 
 
-def _try_numeric_match(response_value: any, store_number: str) -> bool:
+def _try_numeric_match(response_value: Any, store_number: str) -> bool:
     """
     Try to match response_value to store_number via numeric comparison.
     
@@ -284,9 +284,14 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
                 pass  # API call optional
             
             # If we get here, no verification succeeded
+            # Only include store-related fields in log (not entire localStorage)
+            store_fields_str = ", ".join(
+                f"{k}={v}" for k, v in store_context.items()
+                if v is not None
+            )
             verification_note = (
                 f"Store context not verified: expected storeNumber={store_number}, "
-                f"got localStorage={store_context}"
+                f"got {store_fields_str if store_fields_str else 'no store info'}"
             )
             logger.warning(verification_note)
             return False, verification_note
