@@ -1,10 +1,16 @@
 """Product detail page (PDP) scraper for extracting enriched product data."""
 
 import json
+import logging
 import re
 from typing import Optional
 
 import httpx
+
+from .block_detector import BlockDetector, BlockedError
+
+logger = logging.getLogger(__name__)
+block_detector = BlockDetector()
 
 
 def fetch_product_details(
@@ -20,6 +26,9 @@ def fetch_product_details(
         
     Returns:
         Dictionary with product details (name, price, description, features, image_url, stock, aisle, bay)
+        
+    Raises:
+        BlockedError: If a block condition is detected
     """
     details = {
         "name": "",
@@ -34,18 +43,26 @@ def fetch_product_details(
     
     try:
         # Try API endpoint first
-        api_details = _fetch_from_api(sku, httpx_client)
-        if api_details:
-            details.update(api_details)
-            return details
+        try:
+            api_details = _fetch_from_api(sku, httpx_client)
+            if api_details:
+                details.update(api_details)
+                return details
+        except BlockedError:
+            # Re-raise block errors
+            raise
         
         # Fallback to HTML scraping
         html_details = _fetch_from_html(sku, httpx_client)
         details.update(html_details)
         return details
     
+    except BlockedError:
+        # Re-raise block errors
+        raise
     except Exception as e:
-        # Return partial details on error
+        # Return partial details on other errors
+        logger.warning(f"Failed to fetch product details for SKU {sku}: {e}")
         return details
 
 
@@ -59,6 +76,9 @@ def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:
         
     Returns:
         Dictionary with product details, or empty dict if API unavailable
+        
+    Raises:
+        BlockedError: If a block condition is detected (403, 429, captcha)
     """
     details = {}
     
@@ -74,17 +94,27 @@ def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:
                 url = f"https://www.homedepot.com{endpoint}"
                 response = httpx_client.get(url, timeout=10.0)
                 
+                # Check for block conditions
+                if block_detector.check_response(response, endpoint):
+                    raise BlockedError(block_detector.get_block_reason())
+                
                 if response.status_code == 200:
                     data = response.json()
                     details = _parse_api_response(data)
                     if details.get("name"):
                         return details
             
+            except BlockedError:
+                # Re-raise block errors immediately
+                raise
             except Exception:
+                # Silently continue to next endpoint (network, parse, timeout errors)
                 continue
         
         return {}
     
+    except BlockedError:
+        raise
     except Exception:
         return {}
 
@@ -160,6 +190,9 @@ def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
         
     Returns:
         Dictionary with extracted details
+        
+    Raises:
+        BlockedError: If a block condition is detected
     """
     details = {
         "name": "",
@@ -176,6 +209,10 @@ def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
         # Try to construct product URL
         url = f"https://www.homedepot.com/p/{sku}"
         response = httpx_client.get(url, timeout=10.0)
+        
+        # Check for block conditions
+        if block_detector.check_response(response, url):
+            raise BlockedError(block_detector.get_block_reason())
         
         if response.status_code != 200:
             return details
@@ -222,6 +259,9 @@ def _fetch_from_html(sku: str, httpx_client: httpx.Client) -> dict:
         
         return details
     
+    except BlockedError:
+        # Re-raise block errors
+        raise
     except Exception:
         return details
 

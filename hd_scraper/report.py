@@ -13,6 +13,8 @@ def generate_report(
     blocked_count: int = 0,
     store_verified: bool = False,
     store_verification_note: str = "",
+    proxy_enabled: bool = False,
+    store_number: Optional[str] = None,
     output_path: str | Path = "run_report.json",
 ) -> Path:
     """
@@ -26,6 +28,8 @@ def generate_report(
         blocked_count: Number of responses detected as blocked/captcha
         store_verified: Whether store context was successfully verified
         store_verification_note: Details about store verification
+        proxy_enabled: Whether proxy was used
+        store_number: The numeric store number (e.g., "0205")
         output_path: Path to save the report
         
     Returns:
@@ -43,6 +47,15 @@ def generate_report(
         "store_verified": store_verified,
         "store_verification_note": store_verification_note,
     }
+    
+    # Add optional fields (only when they have meaningful non-default values)
+    # proxy_enabled only added if True (otherwise defaults to False/absent)
+    if proxy_enabled:
+        report["proxy_enabled"] = proxy_enabled
+    
+    # store_number only added if provided (otherwise absent from report)
+    if store_number:
+        report["store_number"] = store_number
     
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)

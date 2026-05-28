@@ -10,7 +10,7 @@ from pathlib import Path
 from .bootstrap import setup_store_context, get_cookies_dict, cleanup_playwright, verify_store, save_network_log
 from .scraper import HomeDepotScraper
 from .csv_writer import write_products_csv
-from . import plp, report
+from . import plp, report, config
 
 # Setup logging
 logging.basicConfig(
@@ -78,6 +78,10 @@ async def _async_main(args):
     """Async main function for scraping."""
     print(f"Setting up Playwright session for store {args.store_id}...")
     print(f"Debug mode: {'enabled' if args.debug else 'disabled'}")
+    
+    # Check proxy configuration
+    if config.is_proxy_enabled():
+        print(f"Proxy enabled: {config.get_proxy_url()}")
     
     browser = None
     context = None
@@ -156,6 +160,9 @@ async def _async_main(args):
             output_path = write_products_csv(products, args.output)
             print(f"✓ Wrote {len(products)} products to {output_path}")
             
+            # Extract store number from store_id for report
+            store_number = args.store_id.replace("hd-", "") if args.store_id.startswith("hd-") else args.store_id
+            
             # Generate run report
             report_path = report.generate_report(
                 category_url=args.category_url,
@@ -165,6 +172,8 @@ async def _async_main(args):
                 blocked_count=blocked_count,
                 store_verified=store_verified,
                 store_verification_note=store_verification_note,
+                proxy_enabled=config.is_proxy_enabled(),
+                store_number=store_number,
                 output_path="run_report.json",
             )
             print(f"✓ Generated report: {report_path}")

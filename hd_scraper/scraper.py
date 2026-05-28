@@ -11,6 +11,8 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .models import Product
+from .block_detector import BlockDetector, BlockedError
+from . import config, pdp
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -32,18 +34,28 @@ class HomeDepotScraper:
         """
         self.cookies = cookies or {}
         self.max_workers = max_workers
-        self.session = httpx.Client(
-            base_url=self.BASE_URL,
-            cookies=self.cookies,
-            headers={
+        
+        # Get proxy configuration
+        proxy_url = config.get_proxy_url()
+        client_kwargs = {
+            "base_url": self.BASE_URL,
+            "cookies": self.cookies,
+            "headers": {
                 "User-Agent": (
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
                 ),
             },
-            timeout=30.0,
-        )
+            "timeout": 30.0,
+        }
+        
+        if proxy_url:
+            client_kwargs["proxies"] = proxy_url
+            logger.info(f"Using proxy: {proxy_url}")
+        
+        self.session = httpx.Client(**client_kwargs)
         self.blocked_count = 0
+        self.block_detector = BlockDetector()
 
     @retry(
         stop=stop_after_attempt(3),
@@ -346,9 +358,14 @@ class HomeDepotScraper:
             Product object or None if enrichment fails
         """
         async with semaphore:
+            # Outer try catches unexpected errors; inner try detects block conditions
             try:
-                # Fetch product details (sync function)
-                details = pdp.fetch_product_details(sku, self.session)
+                try:
+                    details = pdp.fetch_product_details(sku, self.session)
+                except BlockedError as e:
+                    self.blocked_count += 1
+                    logger.error(f"SKU {sku} blocked: {e.reason}")
+                    return None
                 
                 if not details.get("name"):
                     logger.warning(f"No name found for SKU {sku}")
@@ -374,5 +391,4 @@ class HomeDepotScraper:
             
             except Exception as e:
                 logger.error(f"Failed to enrich SKU {sku}: {e}")
-                self.blocked_count += 1
                 return None

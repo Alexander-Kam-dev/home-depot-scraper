@@ -2,10 +2,38 @@
 
 import asyncio
 import json
+import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
+
+from . import config
+
+logger = logging.getLogger(__name__)
+
+
+def _try_numeric_match(response_value: Any, store_number: str) -> bool:
+    """
+    Try to match response_value to store_number via numeric comparison.
+    
+    Args:
+        response_value: Value from API response
+        store_number: Expected store number (string)
+        
+    Returns:
+        True if numeric match succeeds, False otherwise
+    """
+    if response_value is None or not store_number.isdigit():
+        return False
+    
+    if not isinstance(response_value, (str, int)):
+        return False
+    
+    try:
+        return int(response_value) == int(store_number)
+    except (ValueError, TypeError):
+        return False
 
 
 # Store playwright instance for cleanup
@@ -79,7 +107,14 @@ async def setup_store_context(
     _playwright_instance = await async_playwright().start()
     
     try:
-        browser = await _playwright_instance.chromium.launch(headless=headless)
+        # Get proxy configuration
+        proxy_url = config.get_proxy_url()
+        launch_args = {"headless": headless}
+        if proxy_url:
+            launch_args["proxy"] = {"server": proxy_url}
+            logger.info(f"Using proxy: {proxy_url}")
+        
+        browser = await _playwright_instance.chromium.launch(**launch_args)
         context = await browser.new_context()
         page = await context.new_page()
         
@@ -167,7 +202,7 @@ async def get_cookies_dict(context: BrowserContext) -> dict[str, str]:
 
 async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tuple[bool, str]:
     """
-    Verify that the store context is active.
+    Verify that the store context is active with strict, evidence-based checks.
     
     Args:
         context: Playwright browser context
@@ -179,45 +214,97 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
     store_number = store_id.replace("hd-", "") if store_id.startswith("hd-") else store_id
     
     try:
-        # Get cookies to check for store-related cookies
+        # Get cookies to check for store-related cookies with actual value match
         cookies = await context.cookies()
-        cookie_names = {c["name"] for c in cookies}
         
-        # Check for common Home Depot store cookies
-        store_related_cookies = {c["name"]: c["value"] for c in cookies 
-                               if "store" in c["name"].lower()}
+        # Look for cookies with the exact store number value
+        for cookie in cookies:
+            if cookie["value"] == store_number:
+                verification_note = f"Store verified via cookie '{cookie['name']}' = {store_number}"
+                logger.info(verification_note)
+                return True, verification_note
         
-        if store_related_cookies:
-            verification_note = f"Store context verified via cookies: {', '.join(store_related_cookies.keys())}"
-            return True, verification_note
-        
-        # If no store cookies, check localStorage via page
+        # Try localStorage checks via a page
         page = None
         try:
             page = await context.new_page()
             await page.goto("https://www.homedepot.com", wait_until="networkidle", timeout=30000)
             
+            # Check localStorage for exact matches
             store_context = await page.evaluate("""
                 () => ({
                     storeId: localStorage.getItem('storeId'),
                     storeNumber: localStorage.getItem('storeNumber'),
+                    selectedStore: localStorage.getItem('selectedStore'),
                 })
             """)
             
             if store_context.get("storeNumber") == store_number:
-                return True, f"Store context verified via localStorage: storeNumber={store_number}"
+                verification_note = f"Store verified via localStorage: storeNumber={store_number}"
+                logger.info(verification_note)
+                return True, verification_note
             
             if store_context.get("storeId") == store_number:
-                return True, f"Store context verified via localStorage: storeId={store_number}"
+                verification_note = f"Store verified via localStorage: storeId={store_number}"
+                logger.info(verification_note)
+                return True, verification_note
             
-            return False, f"Store context mismatch: expected {store_number}, got {store_context}"
+            if store_context.get("selectedStore") == store_number:
+                verification_note = f"Store verified via localStorage: selectedStore={store_number}"
+                logger.info(verification_note)
+                return True, verification_note
+            
+            # Try calling a lightweight Home Depot API endpoint that echoes store info
+            # This provides stronger verification evidence by checking actual server response
+            try:
+                response = await page.evaluate("""
+                    () => fetch('https://www.homedepot.com/api/v1/me/store')
+                        .then(r => r.json())
+                        .then(data => data)
+                        .catch(() => ({}))
+                """)
+                
+                if isinstance(response, dict):
+                    # Check various fields that might contain store info
+                    for key in ["storeId", "storeNumber", "store_number", "id"]:
+                        response_value = response.get(key)
+                        if response_value is None:
+                            continue
+                        # Check exact string match or numeric match
+                        if response_value == store_number:
+                            verification_note = f"Store verified via API endpoint: {key}={store_number}"
+                            logger.info(verification_note)
+                            return True, verification_note
+                        # Try numeric comparison
+                        if _try_numeric_match(response_value, store_number):
+                            verification_note = f"Store verified via API endpoint: {key}={store_number}"
+                            logger.info(verification_note)
+                            return True, verification_note
+            except Exception:
+                pass  # API call optional
+            
+            # If we get here, no verification succeeded
+            # Only include store-related fields in log (not entire localStorage)
+            store_fields = [
+                f"{k}={v}" for k, v in store_context.items()
+                if v is not None and v != ''
+            ]
+            store_info = ", ".join(store_fields) if store_fields else "no store info"
+            verification_note = (
+                f"Store context not verified: expected storeNumber={store_number}, "
+                f"got {store_info}"
+            )
+            logger.warning(verification_note)
+            return False, verification_note
         
         finally:
             if page:
                 await page.close()
     
     except Exception as e:
-        return False, f"Store verification failed: {str(e)}"
+        verification_note = f"Store verification failed: {str(e)}"
+        logger.error(verification_note)
+        return False, verification_note
 
 
 def save_network_log(output_path: str | Path = "artifacts/network.jsonl") -> None:
