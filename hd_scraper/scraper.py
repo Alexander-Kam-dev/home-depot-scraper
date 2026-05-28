@@ -358,9 +358,8 @@ class HomeDepotScraper:
             Product object or None if enrichment fails
         """
         async with semaphore:
+            # Outer try catches unexpected errors; inner try detects block conditions
             try:
-                # Inner try-except detects block conditions from pdp calls
-                # Outer try-except catches any other unexpected errors
                 try:
                     details = pdp.fetch_product_details(sku, self.session)
                 except BlockedError as e:

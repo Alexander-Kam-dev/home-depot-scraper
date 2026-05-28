@@ -24,13 +24,13 @@ BLOCK_KEYWORDS = {
 }
 
 # Keywords most indicative of captcha (subset for pattern detection)
-CAPTCHA_KEYWORDS = [
+CAPTCHA_KEYWORDS = {
     "challenge",
     "bot",
     "recaptcha",
     "captcha",
     "verify",
-]
+}
 
 # Threshold for detecting captcha patterns (number of keywords that must match)
 CAPTCHA_PATTERN_THRESHOLD = 2

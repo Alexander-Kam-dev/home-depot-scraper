@@ -287,7 +287,7 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
             # Only include store-related fields in log (not entire localStorage)
             store_fields = [
                 f"{k}={v}" for k, v in store_context.items()
-                if v is not None
+                if v is not None and v != ''
             ]
             store_info = ", ".join(store_fields) if store_fields else "no store info"
             verification_note = (
