@@ -7,10 +7,10 @@ import logging
 import sys
 from pathlib import Path
 
-from .bootstrap import setup_store_context, get_cookies_dict, cleanup_playwright, verify_store, save_network_log
+from .bootstrap import setup_store_context, get_cookies_dict, cleanup_playwright, verify_store, save_network_log, get_network_log
 from .scraper import HomeDepotScraper
 from .csv_writer import write_products_csv
-from . import plp, report, config
+from . import plp, report, config, endpoint_discovery
 
 # Setup logging
 logging.basicConfig(
@@ -108,9 +108,18 @@ async def _async_main(args):
             print(f"⚠ Store verification failed: {store_verification_note}")
         
         # Save network log if debug mode
+        discovered_endpoints = {}
         if args.debug:
             save_network_log("artifacts/network.jsonl")
             print("✓ Network capture saved to artifacts/network.jsonl")
+            
+            # Discover endpoints from network log
+            network_log = get_network_log()
+            discovered_endpoints = endpoint_discovery.find_json_endpoints(network_log)
+            if discovered_endpoints.get("plp_endpoints"):
+                print(f"✓ Discovered {len(discovered_endpoints['plp_endpoints'])} PLP endpoints")
+            if discovered_endpoints.get("pdp_endpoints"):
+                print(f"✓ Discovered {len(discovered_endpoints['pdp_endpoints'])} PDP endpoints")
         
         # Extract cookies for httpx
         cookies = await get_cookies_dict(context)
@@ -123,24 +132,29 @@ async def _async_main(args):
         context = None
         browser = None
         
-        # Create scraper with cookies
+        # Create scraper with cookies and discovered endpoints
         print(f"Starting scraper for: {args.category_url}")
-        scraper = HomeDepotScraper(cookies=cookies, max_workers=5)
+        scraper = HomeDepotScraper(cookies=cookies, max_workers=5, discovered_endpoints=discovered_endpoints)
         
         try:
             # Extract SKUs from PLP
-            skus, category_path = plp.get_skus(args.category_url, scraper.session, limit=args.limit)
+            skus, category_path = plp.get_skus(
+                args.category_url,
+                scraper.session,
+                limit=args.limit,
+                discovered_endpoints=discovered_endpoints.get("plp_endpoints"),
+            )
             attempted_skus = len(skus)
             print(f"✓ Found {attempted_skus} SKUs")
             
-            # Save first PLP response if debug
-            if args.debug:
+            # Save first PLP JSON response if debug and available
+            if args.debug and discovered_endpoints.get("plp_endpoints"):
                 try:
-                    html = scraper.session.get(args.category_url).text
-                    Path("artifacts").mkdir(exist_ok=True)
-                    with open("artifacts/first_plp.html", "w", encoding="utf-8") as f:
-                        f.write(html[:5000])  # Save first 5000 chars
-                    print("✓ First PLP HTML saved to artifacts/first_plp.html")
+                    endpoint = discovered_endpoints["plp_endpoints"][0]
+                    response = scraper.session.get(endpoint.get("url"), timeout=10.0)
+                    if response.status_code == 200:
+                        endpoint_discovery.save_sample_response(response.text, "sample_plp.json")
+                        print("✓ Saved sample PLP response to artifacts/sample_plp.json")
                 except Exception:
                     pass
             
@@ -153,6 +167,18 @@ async def _async_main(args):
                 debug=args.debug,
             )
             blocked_count = scraper.blocked_count
+            
+            # Save first PDP JSON response if debug and available
+            if args.debug and discovered_endpoints.get("pdp_endpoints") and products:
+                try:
+                    endpoint = discovered_endpoints["pdp_endpoints"][0]
+                    sku = products[0].id
+                    response = scraper.session.get(f"{endpoint.get('url').rstrip('/')}/{sku}", timeout=10.0)
+                    if response.status_code == 200:
+                        endpoint_discovery.save_sample_response(response.text, "sample_pdp.json")
+                        print("✓ Saved sample PDP response to artifacts/sample_pdp.json")
+                except Exception:
+                    pass
             
             print(f"✓ Enriched {len(products)} products")
             
