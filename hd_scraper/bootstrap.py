@@ -13,6 +13,29 @@ from . import config
 logger = logging.getLogger(__name__)
 
 
+def _try_numeric_match(response_value: any, store_number: str) -> bool:
+    """
+    Try to match response_value to store_number via numeric comparison.
+    
+    Args:
+        response_value: Value from API response
+        store_number: Expected store number (string)
+        
+    Returns:
+        True if numeric match succeeds, False otherwise
+    """
+    if response_value is None or not store_number.isdigit():
+        return False
+    
+    if not isinstance(response_value, (str, int)):
+        return False
+    
+    try:
+        return int(response_value) == int(store_number)
+    except (ValueError, TypeError):
+        return False
+
+
 # Store playwright instance for cleanup
 _playwright_instance: Optional[Playwright] = None
 _network_log: list[dict] = []
@@ -252,15 +275,11 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
                             verification_note = f"Store verified via API endpoint: {key}={store_number}"
                             logger.info(verification_note)
                             return True, verification_note
-                        # Try numeric comparison if value is numeric and store_number is numeric
-                        if isinstance(response_value, (str, int)) and store_number.isdigit():
-                            try:
-                                if int(response_value) == int(store_number):
-                                    verification_note = f"Store verified via API endpoint: {key}={store_number}"
-                                    logger.info(verification_note)
-                                    return True, verification_note
-                            except (ValueError, TypeError):
-                                continue
+                        # Try numeric comparison
+                        if _try_numeric_match(response_value, store_number):
+                            verification_note = f"Store verified via API endpoint: {key}={store_number}"
+                            logger.info(verification_note)
+                            return True, verification_note
             except Exception:
                 pass  # API call optional
             

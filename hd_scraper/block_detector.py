@@ -8,6 +8,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Valid URL schemes for checking if endpoint is a full URL
+VALID_URL_SCHEMES = ('http', 'https')
+
 # Keywords that indicate captcha or bot checks
 BLOCK_KEYWORDS = {
     "captcha",
@@ -87,7 +90,7 @@ class BlockDetector:
         endpoint_path = endpoint or ""
         try:
             parsed = urlparse(endpoint)
-            if parsed.scheme in ('http', 'https'):  # It's a full URL
+            if parsed.scheme in VALID_URL_SCHEMES:  # It's a full URL
                 endpoint_path = parsed.path or ""
         except Exception:
             pass
@@ -138,8 +141,9 @@ class BlockDetector:
         Returns:
             True if captcha patterns detected, False otherwise
         """
-        # Check for common captcha markers
-        captcha_patterns = [
+        # Check for keywords most indicative of actual captcha (not just any block)
+        # This subset is more specific than the full BLOCK_KEYWORDS set
+        captcha_keywords = [
             "challenge",
             "bot",
             "recaptcha",
@@ -147,8 +151,8 @@ class BlockDetector:
             "verify",
         ]
 
-        # Must have multiple indicators or specific patterns
-        pattern_count = sum(1 for p in captcha_patterns if p in response_text)
+        # Must have multiple indicators or specific patterns to confirm captcha
+        pattern_count = sum(1 for keyword in captcha_keywords if keyword in response_text)
 
         if pattern_count >= CAPTCHA_PATTERN_THRESHOLD:
             return True
