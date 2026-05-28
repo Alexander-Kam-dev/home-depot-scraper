@@ -16,13 +16,18 @@ block_detector = BlockDetector()
 def fetch_product_details(
     sku: str,
     httpx_client: httpx.Client,
+    discovered_endpoints: Optional[list[dict]] = None,
 ) -> dict:
     """
     Fetch enriched product details for a SKU.
     
+    Attempts to use discovered endpoints first, then guesses common endpoints,
+    and falls back to HTML scraping.
+    
     Args:
         sku: Product SKU
         httpx_client: Configured httpx client with cookies
+        discovered_endpoints: List of discovered JSON endpoints from network capture
         
     Returns:
         Dictionary with product details (name, price, description, features, image_url, stock, aisle, bay)
@@ -42,7 +47,21 @@ def fetch_product_details(
     }
     
     try:
-        # Try API endpoint first
+        # Try discovered endpoints first
+        if discovered_endpoints:
+            for endpoint_info in discovered_endpoints:
+                endpoint_url = endpoint_info.get("url", "")
+                try:
+                    api_details = _fetch_from_discovered_endpoint(sku, endpoint_url, httpx_client)
+                    if api_details.get("name"):
+                        details.update(api_details)
+                        return details
+                except BlockedError:
+                    raise
+                except Exception:
+                    continue
+        
+        # Try guessed API endpoints
         try:
             api_details = _fetch_from_api(sku, httpx_client)
             if api_details:
@@ -64,6 +83,48 @@ def fetch_product_details(
         # Return partial details on other errors
         logger.warning(f"Failed to fetch product details for SKU {sku}: {e}")
         return details
+
+
+def _fetch_from_discovered_endpoint(
+    sku: str,
+    endpoint_url: str,
+    httpx_client: httpx.Client,
+) -> dict:
+    """
+    Try to fetch product details from a discovered JSON endpoint.
+    
+    Args:
+        sku: Product SKU
+        endpoint_url: Base endpoint URL discovered from network capture
+        httpx_client: Configured httpx client
+        
+    Returns:
+        Dictionary with product details, or empty dict if unavailable
+        
+    Raises:
+        BlockedError: If a block condition is detected
+    """
+    try:
+        # Try appending SKU to endpoint URL
+        url = f"{endpoint_url.rstrip('/')}/{sku}"
+        response = httpx_client.get(url, timeout=10.0)
+        
+        # Check for block conditions
+        if block_detector.check_response(response, url):
+            raise BlockedError(block_detector.get_block_reason())
+        
+        if response.status_code == 200:
+            data = response.json()
+            details = _parse_api_response(data)
+            if details.get("name"):
+                return details
+    
+    except BlockedError:
+        raise
+    except Exception as e:
+        logger.debug(f"Failed to fetch from discovered endpoint {endpoint_url} for SKU {sku}: {e}")
+    
+    return {}
 
 
 def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:

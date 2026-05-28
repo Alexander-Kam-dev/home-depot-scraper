@@ -41,25 +41,23 @@ _playwright_instance: Optional[Playwright] = None
 _network_log: list[dict] = []
 
 
-def _record_request(url: str, method: str, headers: dict) -> None:
-    """Record request details to network log."""
-    _network_log.append({
-        "type": "request",
-        "url": url,
-        "method": method,
-        "headers": headers,
-    })
-
-
 async def _record_response_handler(response) -> None:
     """Record response details to network log."""
     try:
         content_type = response.headers.get("content-type", "")
+        # Get response size in bytes
+        try:
+            response_body = await response.body()
+            response_size = len(response_body)
+        except Exception:
+            response_size = 0
+        
         _network_log.append({
-            "type": "response",
+            "method": response.request.method,
             "url": response.url,
             "status": response.status,
             "content_type": content_type,
+            "size_bytes": response_size,
         })
     except Exception:
         pass

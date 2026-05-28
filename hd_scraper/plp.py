@@ -1,27 +1,37 @@
 """Product listing page (PLP) scraper for extracting SKUs and category data."""
 
 import json
+import logging
 import re
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
+# Constants
+API_PAGE_SIZE = 24
+
 
 def get_skus(
     category_url: str,
     httpx_client: httpx.Client,
     limit: int = 50,
+    discovered_endpoints: Optional[list[dict]] = None,
 ) -> tuple[list[str], str]:
     """
     Extract SKUs from a Home Depot PLP (product listing page).
     
     Collects more SKUs than needed (aiming for 80+) to handle failures during enrichment.
     
+    Attempts to use discovered JSON endpoints first, then falls back to HTML parsing.
+    
     Args:
         category_url: Full URL of the category page
         httpx_client: Configured httpx client with cookies
         limit: Target number of SKUs (actual returned may be more)
+        discovered_endpoints: List of discovered JSON endpoints from network capture
         
     Returns:
         Tuple of (skus: list of unique SKU strings, category_path: formatted path)
@@ -35,9 +45,22 @@ def get_skus(
     max_pages = 5  # Limit pagination attempts
     target_count = int(limit * 1.6)  # Overfetch to ~80 for 50 target
     
+    # Try endpoint-based approach first if endpoints are available
+    if discovered_endpoints:
+        for endpoint_info in discovered_endpoints:
+            endpoint_url = endpoint_info.get("url", "")
+            if _fetch_from_endpoint(endpoint_url, httpx_client, skus, max_pages, target_count):
+                if len(skus) >= target_count:
+                    break
+    
+    # If we have enough SKUs from endpoints, return early
+    if len(skus) >= target_count:
+        return sorted(list(skus)), category_path
+    
+    # Fallback to guessed API endpoints
     while len(skus) < target_count and page <= max_pages:
         try:
-            # Attempt to fetch from API first
+            # Attempt to fetch from guessed API first
             api_skus = _fetch_from_api(category_url, httpx_client, page)
             if api_skus:
                 skus.update(api_skus)
@@ -63,6 +86,57 @@ def get_skus(
             break
     
     return sorted(list(skus)), category_path
+
+
+def _fetch_from_endpoint(
+    endpoint_url: str,
+    httpx_client: httpx.Client,
+    skus: set,
+    max_pages: int,
+    target_count: int,
+) -> bool:
+    """
+    Fetch SKUs from a discovered JSON endpoint with pagination.
+    
+    Args:
+        endpoint_url: Base endpoint URL
+        httpx_client: Configured httpx client
+        skus: Set to add found SKUs to
+        max_pages: Maximum number of pages to fetch
+        target_count: Target number of SKUs
+        
+    Returns:
+        True if endpoint produced results, False otherwise
+    """
+    try:
+        page = 1
+        while len(skus) < target_count and page <= max_pages:
+            try:
+                # Try with offset pagination
+                params = {"offset": (page - 1) * API_PAGE_SIZE, "limit": API_PAGE_SIZE}
+                response = httpx_client.get(endpoint_url, params=params, timeout=10.0)
+                
+                if response.status_code != 200:
+                    break
+                
+                data = response.json()
+                found_skus = _extract_skus_from_api_response(data)
+                
+                if not found_skus:
+                    break
+                
+                skus.update(found_skus)
+                page += 1
+            
+            except Exception as e:
+                logger.debug(f"Failed to fetch from endpoint {endpoint_url} page {page}: {e}")
+                break
+        
+        return len(skus) > 0
+    
+    except Exception as e:
+        logger.debug(f"Error fetching from endpoint {endpoint_url}: {e}")
+        return False
 
 
 def _extract_category_path(url: str) -> str:
@@ -144,8 +218,8 @@ def _fetch_from_api(
                 "variables": {
                     "searchInput": {
                         "query": "",
-                        "offset": (page - 1) * 24,
-                        "limit": 24,
+                        "offset": (page - 1) * API_PAGE_SIZE,
+                        "limit": API_PAGE_SIZE,
                     }
                 },
                 "query": "query GetSearchProducts($searchInput: SearchInput!) { search(input: $searchInput) { products { productId } } }"
@@ -171,8 +245,8 @@ def _fetch_from_api(
             api_url = "https://www.homedepot.com/api/v1/products"
             
             api_params = {
-                "offset": (page - 1) * 24,
-                "limit": 24,
+                "offset": (page - 1) * API_PAGE_SIZE,
+                "limit": API_PAGE_SIZE,
             }
             
             response = httpx_client.get(api_url, params=api_params, timeout=10.0)

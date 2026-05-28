@@ -24,16 +24,18 @@ class HomeDepotScraper:
     BASE_URL = "https://www.homedepot.com"
     STORE_ID = "hd-0205"
     
-    def __init__(self, cookies: Optional[dict[str, str]] = None, max_workers: int = 5):
+    def __init__(self, cookies: Optional[dict[str, str]] = None, max_workers: int = 5, discovered_endpoints: Optional[dict] = None):
         """
         Initialize scraper with optional cookies from Playwright session.
         
         Args:
             cookies: Dictionary of cookies from Playwright context
             max_workers: Maximum concurrent requests for enrichment
+            discovered_endpoints: Dictionary with 'plp_endpoints' and 'pdp_endpoints' from network capture
         """
         self.cookies = cookies or {}
         self.max_workers = max_workers
+        self.discovered_endpoints = discovered_endpoints or {}
         
         # Get proxy configuration
         proxy_url = config.get_proxy_url()
@@ -361,7 +363,11 @@ class HomeDepotScraper:
             # Outer try catches unexpected errors; inner try detects block conditions
             try:
                 try:
-                    details = pdp.fetch_product_details(sku, self.session)
+                    details = pdp.fetch_product_details(
+                        sku,
+                        self.session,
+                        discovered_endpoints=self.discovered_endpoints.get("pdp_endpoints"),
+                    )
                 except BlockedError as e:
                     self.blocked_count += 1
                     logger.error(f"SKU {sku} blocked: {e.reason}")
