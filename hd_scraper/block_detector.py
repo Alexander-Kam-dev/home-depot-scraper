@@ -84,11 +84,11 @@ class BlockDetector:
         ]
 
         # Extract path from endpoint (handle both full URLs and paths)
-        endpoint_path = endpoint
+        endpoint_path = endpoint or ""
         try:
             parsed = urlparse(endpoint)
             if parsed.scheme:  # It's a full URL
-                endpoint_path = parsed.path
+                endpoint_path = parsed.path or ""
         except Exception:
             pass
 

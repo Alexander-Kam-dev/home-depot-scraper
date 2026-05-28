@@ -363,7 +363,6 @@ class HomeDepotScraper:
                 try:
                     details = pdp.fetch_product_details(sku, self.session)
                 except BlockedError as e:
-                    # Increment blocked_count only for actual block conditions
                     self.blocked_count += 1
                     logger.error(f"SKU {sku} blocked: {e.reason}")
                     return None

@@ -245,6 +245,8 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
                     # Check various fields that might contain store info
                     for key in ["storeId", "storeNumber", "store_number", "id"]:
                         response_value = response.get(key)
+                        if response_value is None:
+                            continue
                         # Check exact string match or numeric match
                         if response_value == store_number:
                             verification_note = f"Store verified via API endpoint: {key}={store_number}"
