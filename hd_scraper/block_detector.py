@@ -87,7 +87,7 @@ class BlockDetector:
         endpoint_path = endpoint or ""
         try:
             parsed = urlparse(endpoint)
-            if parsed.scheme:  # It's a full URL
+            if parsed.scheme in ('http', 'https'):  # It's a full URL
                 endpoint_path = parsed.path or ""
         except Exception:
             pass
@@ -96,10 +96,17 @@ class BlockDetector:
             endpoint_path.lower().startswith(ep) for ep in expected_json_endpoints
         )
 
-        if is_json_endpoint and response.text:
+        # Store response text once to avoid re-decoding
+        try:
+            response_text = response.text
+        except Exception:
+            # If we can't get response text, assume it's not blocked
+            return False
+
+        if is_json_endpoint and response_text:
             if "application/json" not in content_type:
                 # Only flag if response looks like HTML (common for captcha redirects)
-                if response.text.strip().startswith("<"):
+                if response_text.strip().startswith("<"):
                     self.block_detected = True
                     self.block_reason = (
                         f"Unexpected content-type '{content_type}' at {endpoint} "
@@ -109,19 +116,15 @@ class BlockDetector:
                     return True
 
         # Check response body for captcha/bot keywords
-        try:
-            response_text = response.text.lower()
-            for keyword in BLOCK_KEYWORDS:
-                if keyword in response_text:
-                    # Do more specific checking to avoid false positives
-                    if self._contains_captcha_pattern(response_text):
-                        self.block_detected = True
-                        self.block_reason = f"Captcha/bot block detected at {endpoint}"
-                        logger.warning(f"Block detected: {self.block_reason}")
-                        return True
-        except Exception:
-            # If we can't check the response text, don't assume it's blocked
-            pass
+        response_text_lower = response_text.lower()
+        for keyword in BLOCK_KEYWORDS:
+            if keyword in response_text_lower:
+                # Do more specific checking to avoid false positives
+                if self._contains_captcha_pattern(response_text_lower):
+                    self.block_detected = True
+                    self.block_reason = f"Captcha/bot block detected at {endpoint}"
+                    logger.warning(f"Block detected: {self.block_reason}")
+                    return True
 
         return False
 

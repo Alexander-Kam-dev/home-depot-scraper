@@ -359,7 +359,8 @@ class HomeDepotScraper:
         """
         async with semaphore:
             try:
-                # Fetch product details (sync function)
+                # Inner try-except detects block conditions from pdp calls
+                # Outer try-except catches any other unexpected errors
                 try:
                     details = pdp.fetch_product_details(sku, self.session)
                 except BlockedError as e:

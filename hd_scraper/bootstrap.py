@@ -252,8 +252,8 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
                             verification_note = f"Store verified via API endpoint: {key}={store_number}"
                             logger.info(verification_note)
                             return True, verification_note
-                        # Try numeric comparison if store_number is numeric
-                        if store_number.isdigit():
+                        # Try numeric comparison if value is numeric and store_number is numeric
+                        if isinstance(response_value, (str, int)) and store_number.isdigit():
                             try:
                                 if int(response_value) == int(store_number):
                                     verification_note = f"Store verified via API endpoint: {key}={store_number}"
