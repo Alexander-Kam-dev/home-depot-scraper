@@ -155,8 +155,8 @@ async def _async_main(args):
                     if response.status_code == 200:
                         endpoint_discovery.save_sample_response(response.text, "sample_plp.json")
                         print("✓ Saved sample PLP response to artifacts/sample_plp.json")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to save sample PLP response: {e}")
             
             # Enrich SKUs with product details
             print(f"Enriching products (max workers: {scraper.max_workers})...")
@@ -177,8 +177,8 @@ async def _async_main(args):
                     if response.status_code == 200:
                         endpoint_discovery.save_sample_response(response.text, "sample_pdp.json")
                         print("✓ Saved sample PDP response to artifacts/sample_pdp.json")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to save sample PDP response: {e}")
             
             print(f"✓ Enriched {len(products)} products")
             

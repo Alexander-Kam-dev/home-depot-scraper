@@ -10,6 +10,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Constants
+API_PAGE_SIZE = 24
+
 
 def get_skus(
     category_url: str,
@@ -110,7 +113,7 @@ def _fetch_from_endpoint(
         while len(skus) < target_count and page <= max_pages:
             try:
                 # Try with offset pagination
-                params = {"offset": (page - 1) * 24, "limit": 24}
+                params = {"offset": (page - 1) * API_PAGE_SIZE, "limit": API_PAGE_SIZE}
                 response = httpx_client.get(endpoint_url, params=params, timeout=10.0)
                 
                 if response.status_code != 200:
@@ -125,12 +128,14 @@ def _fetch_from_endpoint(
                 skus.update(found_skus)
                 page += 1
             
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to fetch from endpoint {endpoint_url} page {page}: {e}")
                 break
         
         return len(skus) > 0
     
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Error fetching from endpoint {endpoint_url}: {e}")
         return False
 
 
@@ -213,8 +218,8 @@ def _fetch_from_api(
                 "variables": {
                     "searchInput": {
                         "query": "",
-                        "offset": (page - 1) * 24,
-                        "limit": 24,
+                        "offset": (page - 1) * API_PAGE_SIZE,
+                        "limit": API_PAGE_SIZE,
                     }
                 },
                 "query": "query GetSearchProducts($searchInput: SearchInput!) { search(input: $searchInput) { products { productId } } }"
@@ -240,8 +245,8 @@ def _fetch_from_api(
             api_url = "https://www.homedepot.com/api/v1/products"
             
             api_params = {
-                "offset": (page - 1) * 24,
-                "limit": 24,
+                "offset": (page - 1) * API_PAGE_SIZE,
+                "limit": API_PAGE_SIZE,
             }
             
             response = httpx_client.get(api_url, params=api_params, timeout=10.0)

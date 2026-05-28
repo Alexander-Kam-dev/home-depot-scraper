@@ -121,12 +121,12 @@ def extract_pagination_params(url: str) -> dict:
             except (ValueError, TypeError):
                 pass
     
-    for page_name in ["page"]:
-        if page_name in params:
-            try:
-                pagination_info["page"] = int(params[page_name])
-            except (ValueError, TypeError):
-                pass
+    # Check for page parameter
+    if "page" in params:
+        try:
+            pagination_info["page"] = int(params["page"])
+        except (ValueError, TypeError):
+            pass
     
     return pagination_info
 

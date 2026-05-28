@@ -121,8 +121,8 @@ def _fetch_from_discovered_endpoint(
     
     except BlockedError:
         raise
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to fetch from discovered endpoint {endpoint_url} for SKU {sku}: {e}")
     
     return {}
 
