@@ -285,13 +285,14 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
             
             # If we get here, no verification succeeded
             # Only include store-related fields in log (not entire localStorage)
-            store_fields_str = ", ".join(
+            store_fields = [
                 f"{k}={v}" for k, v in store_context.items()
                 if v is not None
-            )
+            ]
+            store_info = ", ".join(store_fields) if store_fields else "no store info"
             verification_note = (
                 f"Store context not verified: expected storeNumber={store_number}, "
-                f"got {store_fields_str if store_fields_str else 'no store info'}"
+                f"got {store_info}"
             )
             logger.warning(verification_note)
             return False, verification_note

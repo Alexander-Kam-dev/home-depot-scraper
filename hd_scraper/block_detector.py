@@ -23,6 +23,15 @@ BLOCK_KEYWORDS = {
     "forbidden",
 }
 
+# Keywords most indicative of captcha (subset for pattern detection)
+CAPTCHA_KEYWORDS = [
+    "challenge",
+    "bot",
+    "recaptcha",
+    "captcha",
+    "verify",
+]
+
 # Threshold for detecting captcha patterns (number of keywords that must match)
 CAPTCHA_PATTERN_THRESHOLD = 2
 
@@ -118,16 +127,19 @@ class BlockDetector:
                     logger.warning(f"Block detected: {self.block_reason}")
                     return True
 
-        # Check response body for captcha/bot keywords
+        # Check response body for captcha/bot keywords (single pass)
         response_text_lower = response_text.lower()
-        for keyword in BLOCK_KEYWORDS:
-            if keyword in response_text_lower:
-                # Do more specific checking to avoid false positives
-                if self._contains_captcha_pattern(response_text_lower):
-                    self.block_detected = True
-                    self.block_reason = f"Captcha/bot block detected at {endpoint}"
-                    logger.warning(f"Block detected: {self.block_reason}")
-                    return True
+        
+        # First check if any captcha keyword is present
+        has_captcha_keywords = any(kw in response_text_lower for kw in CAPTCHA_KEYWORDS)
+        
+        if has_captcha_keywords:
+            # Only run pattern check if keywords are found
+            if self._contains_captcha_pattern(response_text_lower):
+                self.block_detected = True
+                self.block_reason = f"Captcha/bot block detected at {endpoint}"
+                logger.warning(f"Block detected: {self.block_reason}")
+                return True
 
         return False
 
@@ -141,18 +153,8 @@ class BlockDetector:
         Returns:
             True if captcha patterns detected, False otherwise
         """
-        # Check for keywords most indicative of actual captcha (not just any block)
-        # This subset is more specific than the full BLOCK_KEYWORDS set
-        captcha_keywords = [
-            "challenge",
-            "bot",
-            "recaptcha",
-            "captcha",
-            "verify",
-        ]
-
-        # Must have multiple indicators or specific patterns to confirm captcha
-        pattern_count = sum(1 for keyword in captcha_keywords if keyword in response_text)
+        # Count how many captcha keywords appear in response
+        pattern_count = sum(1 for keyword in CAPTCHA_KEYWORDS if keyword in response_text)
 
         if pattern_count >= CAPTCHA_PATTERN_THRESHOLD:
             return True
