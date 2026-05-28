@@ -45,25 +45,42 @@ def find_json_endpoints(network_log: list[dict]) -> dict:
             continue
         
         # Skip internal/tracking endpoints
-        if any(skip in url for skip in ["beacon", "analytics", "tracking", "ads"]):
+        if any(skip in url for skip in ["beacon", "analytics", "tracking", "ads", "pixel"]):
             continue
         
-        # Classify endpoints
-        if any(keyword in url for keyword in ["/search", "/category", "/browse"]):
-            if url not in [e["url"] for e in plp_endpoints]:
-                plp_endpoints.append({
-                    "url": url,
-                    "method": method,
-                    "content_type": content_type,
-                })
+        # Extract base URL (remove query parameters)
+        base_url = url.split("?")[0] if "?" in url else url
         
-        elif any(keyword in url for keyword in ["/p/", "/product", "/pdp", "/sku"]):
-            if url not in [e["url"] for e in pdp_endpoints]:
-                pdp_endpoints.append({
-                    "url": url,
-                    "method": method,
-                    "content_type": content_type,
-                })
+        # Classify endpoints by common patterns
+        plp_patterns = [
+            "/search", "/category", "/browse", "/api/graphql", 
+            "/mobileapi/", "/p/product-list", "/products/search",
+        ]
+        pdp_patterns = [
+            "/p/", "/product/", "/pdp", "/api/product", "/mobileapi/product",
+        ]
+        
+        # Avoid duplicates
+        existing_urls = [e["url"] for e in plp_endpoints + pdp_endpoints]
+        
+        if base_url in existing_urls:
+            continue
+        
+        # Check for PLP endpoints
+        if any(pattern in base_url.lower() for pattern in plp_patterns):
+            plp_endpoints.append({
+                "url": base_url,
+                "method": method,
+                "content_type": content_type,
+            })
+        
+        # Check for PDP endpoints
+        elif any(pattern in base_url.lower() for pattern in pdp_patterns):
+            pdp_endpoints.append({
+                "url": base_url,
+                "method": method,
+                "content_type": content_type,
+            })
     
     return {
         "plp_endpoints": plp_endpoints,
