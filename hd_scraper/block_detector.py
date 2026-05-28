@@ -2,6 +2,7 @@
 
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -18,6 +19,9 @@ BLOCK_KEYWORDS = {
     "suspended",
     "forbidden",
 }
+
+# Threshold for detecting captcha patterns (number of keywords that must match)
+CAPTCHA_PATTERN_THRESHOLD = 2
 
 
 class BlockedError(Exception):
@@ -51,7 +55,7 @@ class BlockDetector:
 
         Args:
             response: httpx Response object
-            endpoint: The endpoint URL being called (for logging)
+            endpoint: The endpoint URL or path being called (for logging)
 
         Returns:
             True if a block condition is detected, False otherwise
@@ -79,8 +83,17 @@ class BlockDetector:
             "/graphql",
         ]
 
+        # Extract path from endpoint (handle both full URLs and paths)
+        endpoint_path = endpoint
+        try:
+            parsed = urlparse(endpoint)
+            if parsed.scheme:  # It's a full URL
+                endpoint_path = parsed.path
+        except Exception:
+            pass
+
         is_json_endpoint = any(
-            endpoint.lower().startswith(ep) for ep in expected_json_endpoints
+            endpoint_path.lower().startswith(ep) for ep in expected_json_endpoints
         )
 
         if is_json_endpoint and response.text:
@@ -134,7 +147,7 @@ class BlockDetector:
         # Must have multiple indicators or specific patterns
         pattern_count = sum(1 for p in captcha_patterns if p in response_text)
 
-        if pattern_count >= 2:
+        if pattern_count >= CAPTCHA_PATTERN_THRESHOLD:
             return True
 
         # Also check for specific patterns like <title>Just a moment</title>

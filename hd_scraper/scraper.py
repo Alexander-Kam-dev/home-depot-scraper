@@ -11,8 +11,8 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .models import Product
-from .block_detector import BlockDetector
-from . import config
+from .block_detector import BlockDetector, BlockedError
+from . import config, pdp
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -359,10 +359,6 @@ class HomeDepotScraper:
         """
         async with semaphore:
             try:
-                # Import pdp here to avoid circular imports
-                from . import pdp
-                from .block_detector import BlockedError
-                
                 # Fetch product details (sync function)
                 try:
                     details = pdp.fetch_product_details(sku, self.session)

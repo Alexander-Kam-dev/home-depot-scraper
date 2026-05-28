@@ -232,6 +232,7 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
                 return True, verification_note
             
             # Try calling a lightweight Home Depot API endpoint that echoes store info
+            # This provides stronger verification evidence by checking actual server response
             try:
                 response = await page.evaluate("""
                     () => fetch('https://www.homedepot.com/api/v1/me/store')
@@ -243,10 +244,21 @@ async def verify_store(context: BrowserContext, store_id: str = "hd-0205") -> tu
                 if isinstance(response, dict):
                     # Check various fields that might contain store info
                     for key in ["storeId", "storeNumber", "store_number", "id"]:
-                        if response.get(key) == store_number or response.get(key) == int(store_number):
+                        response_value = response.get(key)
+                        # Check exact string match or numeric match
+                        if response_value == store_number:
                             verification_note = f"Store verified via API endpoint: {key}={store_number}"
                             logger.info(verification_note)
                             return True, verification_note
+                        # Try numeric comparison if store_number is numeric
+                        if store_number.isdigit():
+                            try:
+                                if int(response_value) == int(store_number):
+                                    verification_note = f"Store verified via API endpoint: {key}={store_number}"
+                                    logger.info(verification_note)
+                                    return True, verification_note
+                            except (ValueError, TypeError):
+                                continue
             except Exception:
                 pass  # API call optional
             

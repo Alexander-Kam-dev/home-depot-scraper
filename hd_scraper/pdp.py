@@ -108,6 +108,8 @@ def _fetch_from_api(sku: str, httpx_client: httpx.Client) -> dict:
                 # Re-raise block errors immediately
                 raise
             except Exception:
+                # Silently continue to next endpoint on any other error (network, parse, etc.)
+                # This allows fallback to HTML scraping or trying alternative endpoints
                 continue
         
         return {}
