@@ -2,8 +2,11 @@ README.md
 pyproject.toml
 hd_scraper/__init__.py
 hd_scraper/__main__.py
+hd_scraper/block_detector.py
 hd_scraper/bootstrap.py
+hd_scraper/config.py
 hd_scraper/csv_writer.py
+hd_scraper/endpoint_discovery.py
 hd_scraper/models.py
 hd_scraper/pdp.py
 hd_scraper/plp.py
@@ -15,3 +18,7 @@ hd_scraper.egg-info/dependency_links.txt
 hd_scraper.egg-info/entry_points.txt
 hd_scraper.egg-info/requires.txt
 hd_scraper.egg-info/top_level.txt
+tests/__init__.py
+tests/test_csv_writer.py
+tests/test_models.py
+tests/test_scraping.py
