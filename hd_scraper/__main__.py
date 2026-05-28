@@ -172,8 +172,8 @@ async def _async_main(args):
             if args.debug and discovered_endpoints.get("pdp_endpoints") and products:
                 try:
                     endpoint = discovered_endpoints["pdp_endpoints"][0]
-                    sku = products[0].id
-                    response = scraper.session.get(f"{endpoint.get('url').rstrip('/')}/{sku}", timeout=10.0)
+                    sample_sku = products[0].id
+                    response = scraper.session.get(f"{endpoint.get('url').rstrip('/')}/{sample_sku}", timeout=10.0)
                     if response.status_code == 200:
                         endpoint_discovery.save_sample_response(response.text, "sample_pdp.json")
                         print("✓ Saved sample PDP response to artifacts/sample_pdp.json")
