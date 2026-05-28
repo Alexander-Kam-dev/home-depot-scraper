@@ -2,6 +2,16 @@
 
 An MVP Python 3.11 scraper for Home Depot product data with store context support.
 
+**⚠️ MVP Status and Limitations**
+
+This is a minimum viable product (MVP) scraper intended for portfolio demonstration and experimentation. 
+Please note:
+
+- **No guarantee of uptime or reliability**: The scraper may break at any time if Home Depot changes their website structure or API endpoints.
+- **Best-effort approach**: Product data extraction uses a combination of API endpoints and HTML parsing fallbacks. Not all fields may be available for every product.
+- **Rate limiting**: The scraper respects standard HTTP rate limits (429 responses) with exponential backoff, but Home Depot may block aggressive scraping.
+- **For development/learning only**: Do not use in production without proper review and load testing.
+
 ## Features
 
 - **Store Context Support**: Sets physical store #0205 before scraping via Playwright
@@ -11,6 +21,7 @@ An MVP Python 3.11 scraper for Home Depot product data with store context suppor
 - **Data Validation**: Pydantic models for row schema validation
 - **Retry Logic**: Tenacity for automatic retries with exponential backoff
 - **CSV Export**: Outputs products.csv with exact column ordering and format
+- **Debug Mode**: Network endpoint discovery with `--debug` flag to inspect actual API calls
 
 ## Installation
 
@@ -41,6 +52,21 @@ python -m hd_scraper --category-url "https://www.homedepot.com/c/..."
 ```
 
 If the proxy URL is not set, the scraper runs normally without proxy routing.
+
+### Debug Mode
+
+Run with `--debug` to capture network endpoints and sample API payloads for analysis:
+
+```bash
+python -m hd_scraper \
+  --category-url "https://www.homedepot.com/b/Bath-Bathroom-Faucets/Touchless" \
+  --output products.csv \
+  --debug
+```
+
+This will create an `artifacts/` directory containing:
+- `network.jsonl` - Captured network requests (for endpoint discovery)
+- Sample PLP and PDP JSON payloads (for debugging data extraction)
 
 ## Usage
 
@@ -92,25 +118,41 @@ id,name,price,category_path,store_id,image_url,description,features,stock,aisle,
 
 ## Architecture
 
-### Modules
-
-- **models.py**: Pydantic Product model with CSV serialization and validation
-- **config.py**: Environment variable configuration (proxy support)
-- **block_detector.py**: Block detection helper for identifying rate limits and captchas
-- **bootstrap.py**: Playwright session setup for store context establishment
-- **scraper.py**: httpx-based scraper with Tenacity retry logic and block detection
-- **csv_writer.py**: CSV output writer with exact column ordering
-- **report.py**: Run report generation with session metadata
-- **__main__.py**: CLI entry point and orchestration
-
 ### Flow
 
-1. Playwright bootstraps a browser session and sets store context to #0205
-2. Cookies are extracted from the Playwright session
-3. Playwright browser is closed
-4. httpx client uses extracted cookies for subsequent requests
-5. Products are validated with Pydantic models
-6. Results are written to CSV with exact column ordering
+1. **Playwright Bootstrap** (store context setup)
+   - Playwright opens a browser and sets the physical store context to #0205
+   - Captures cookies and session data
+   - Browser is closed after bootstrap completes
+
+2. **httpx Data Fetching** (bulk operations)
+   - Cookies from Playwright are exported to httpx client
+   - httpx handles all subsequent API calls with browser-like headers
+   - Includes automatic retry logic with exponential backoff
+
+3. **Data Extraction**
+   - PLP (Product Listing Page): Discovers SKU list via discovered endpoints or HTML parsing
+   - PDP (Product Detail Page): Fetches enriched data for each SKU via API or HTML fallback
+   - Block Detection: Monitors for rate limits and captchas
+
+4. **Output**
+   - Products are validated using Pydantic models
+   - Data is written to CSV with exact column ordering
+   - Run report (JSON) includes metadata and metrics
+
+### Why Playwright + httpx?
+
+- **Playwright** is resource-intensive but excellent for:
+  - Setting up store context (requires JavaScript execution)
+  - Capturing actual network endpoints used by Home Depot's JS frontend
+  - Extracting session cookies
+
+- **httpx** is lightweight and efficient for:
+  - Making subsequent JSON API calls
+  - Handling retries, connection pooling, and rate limiting
+  - Running concurrent requests with bounded concurrency
+
+After Playwright establishes the session, all heavy lifting is done via httpx, reducing memory usage and improving performance.
 
 ## Data Validation
 
