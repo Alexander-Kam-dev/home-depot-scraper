@@ -10,6 +10,7 @@ from pathlib import Path
 from .bootstrap import setup_store_context, get_cookies_dict, cleanup_playwright, verify_store, save_network_log, get_network_log
 from .scraper import HomeDepotScraper
 from .csv_writer import write_products_csv
+from .block_detector import BlockedError
 from . import plp, report, config, endpoint_discovery
 
 # Setup logging
@@ -138,12 +139,20 @@ async def _async_main(args):
         
         try:
             # Extract SKUs from PLP
-            skus, category_path = plp.get_skus(
-                args.category_url,
-                scraper.session,
-                limit=args.limit,
-                discovered_endpoints=discovered_endpoints.get("plp_endpoints"),
-            )
+            try:
+                skus, category_path = plp.get_skus(
+                    args.category_url,
+                    scraper.session,
+                    limit=args.limit,
+                    discovered_endpoints=discovered_endpoints.get("plp_endpoints"),
+                )
+            except BlockedError as e:
+                print(f"\n❌ BLOCKED during PLP fetch:", file=sys.stderr)
+                print(f"   URL: {args.category_url}", file=sys.stderr)
+                print(f"   Reason: {e.reason}", file=sys.stderr)
+                logger.error(f"Blocked during PLP fetch: {e.reason}")
+                sys.exit(1)
+            
             attempted_skus = len(skus)
             print(f"✓ Found {attempted_skus} SKUs")
             
