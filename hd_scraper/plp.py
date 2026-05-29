@@ -86,7 +86,7 @@ def get_skus(
     if len(skus) >= target_count:
         return sorted(list(skus)), category_path
     
-    # HTML parsing (primary method after disabling API endpoint guessing)
+    # Fetch and parse HTML pages for remaining SKUs
     while len(skus) < target_count and page <= max_pages:
         try:
             # Fetch HTML directly with block detection
