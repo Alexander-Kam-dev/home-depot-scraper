@@ -164,7 +164,6 @@ def _fetch_from_endpoint(
                 page += 1
             
             except BlockedError:
-                # Re-raise block conditions
                 raise
             except Exception as e:
                 logger.debug(f"Failed to fetch from endpoint {endpoint_url} page {page}: {e}")
@@ -173,7 +172,6 @@ def _fetch_from_endpoint(
         return len(skus) > 0
     
     except BlockedError:
-        # Re-raise block conditions up the call stack
         raise
     except Exception as e:
         logger.debug(f"Error fetching from endpoint {endpoint_url}: {e}")
