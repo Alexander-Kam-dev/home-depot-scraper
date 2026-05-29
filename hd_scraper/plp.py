@@ -8,10 +8,38 @@ from urllib.parse import urlparse, parse_qs
 
 import httpx
 
+from .block_detector import BlockedError
+
 logger = logging.getLogger(__name__)
 
 # Constants
 API_PAGE_SIZE = 24
+
+
+def _check_block_condition(response: httpx.Response, url: str) -> None:
+    """
+    Check if response indicates a block condition and raise if so.
+    
+    Args:
+        response: httpx Response object
+        url: URL that was fetched
+        
+    Raises:
+        BlockedError: If a block condition is detected (403, 429)
+    """
+    if response.status_code in (403, 429):
+        # Get a snippet of the response body for debugging
+        try:
+            snippet = response.text[:200] if response.text else "(empty body)"
+        except Exception:
+            snippet = "(unable to read body)"
+        
+        error_msg = (
+            f"Blocked (HTTP {response.status_code}) at {url}\n"
+            f"Response snippet: {snippet}"
+        )
+        logger.error(error_msg)
+        raise BlockedError(error_msg)
 
 
 def get_skus(
@@ -37,6 +65,7 @@ def get_skus(
         Tuple of (skus: list of unique SKU strings, category_path: formatted path)
         
     Raises:
+        BlockedError: If a block condition is detected (HTTP 403, 429)
         RuntimeError: If SKU extraction fails
     """
     skus = set()
@@ -57,20 +86,17 @@ def get_skus(
     if len(skus) >= target_count:
         return sorted(list(skus)), category_path
     
-    # Fallback to guessed API endpoints
+    # Fallback to HTML parsing
     while len(skus) < target_count and page <= max_pages:
         try:
-            # Attempt to fetch from guessed API first
-            api_skus = _fetch_from_api(category_url, httpx_client, page)
-            if api_skus:
-                skus.update(api_skus)
-                if len(skus) >= target_count:
-                    break
-                page += 1
-                continue
+            # Fetch HTML directly with block detection
+            params = {"page": page} if page > 1 else None
+            response = httpx_client.get(category_url, params=params)
             
-            # Fallback to HTML parsing
-            html = httpx_client.get(category_url, params={"page": page} if page > 1 else None).text
+            # Check for block conditions before processing
+            _check_block_condition(response, category_url)
+            
+            html = response.text
             html_skus = _extract_skus_from_html(html)
             
             if not html_skus:
@@ -79,6 +105,9 @@ def get_skus(
             skus.update(html_skus)
             page += 1
             
+        except BlockedError:
+            # Re-raise block conditions - these are fatal
+            raise
         except Exception as e:
             # If we have some SKUs, continue; otherwise raise
             if not skus:
@@ -107,6 +136,9 @@ def _fetch_from_endpoint(
         
     Returns:
         True if endpoint produced results, False otherwise
+        
+    Raises:
+        BlockedError: If endpoint returns 403 or 429
     """
     try:
         page = 1
@@ -115,6 +147,9 @@ def _fetch_from_endpoint(
                 # Try with offset pagination
                 params = {"offset": (page - 1) * API_PAGE_SIZE, "limit": API_PAGE_SIZE}
                 response = httpx_client.get(endpoint_url, params=params, timeout=10.0)
+                
+                # Check for block conditions first
+                _check_block_condition(response, endpoint_url)
                 
                 if response.status_code != 200:
                     break
@@ -128,12 +163,18 @@ def _fetch_from_endpoint(
                 skus.update(found_skus)
                 page += 1
             
+            except BlockedError:
+                # Re-raise block conditions
+                raise
             except Exception as e:
                 logger.debug(f"Failed to fetch from endpoint {endpoint_url} page {page}: {e}")
                 break
         
         return len(skus) > 0
     
+    except BlockedError:
+        # Re-raise block conditions up the call stack
+        raise
     except Exception as e:
         logger.debug(f"Error fetching from endpoint {endpoint_url}: {e}")
         return False
@@ -191,79 +232,22 @@ def _fetch_from_api(
     page: int = 1,
 ) -> list[str]:
     """
-    Try to fetch SKUs from Home Depot's internal API.
+    Disabled: Guessed API endpoints are unreliable and waste traffic.
+    
+    This function previously tried to guess common Home Depot API patterns,
+    but these endpoints consistently returned 404s and added significant noise.
+    For MVP simplification, we now rely only on discovered endpoints and HTML parsing.
     
     Args:
-        category_url: Category URL
-        httpx_client: Configured httpx client
-        page: Page number
+        category_url: Category URL (unused)
+        httpx_client: Configured httpx client (unused)
+        page: Page number (unused)
         
     Returns:
-        List of SKU strings, or empty list if API not found
+        Always returns empty list
     """
-    try:
-        # Try common Home Depot API patterns
-        parsed = urlparse(category_url)
-        
-        # Try GraphQL endpoint
-        try:
-            graphql_url = "https://www.homedepot.com/apiservice/v1/graphql"
-            
-            # Extract category parameters from original URL
-            query_params = parse_qs(parsed.query)
-            
-            # Build GraphQL query
-            graphql_payload = {
-                "operationName": "GetSearchProducts",
-                "variables": {
-                    "searchInput": {
-                        "query": "",
-                        "offset": (page - 1) * API_PAGE_SIZE,
-                        "limit": API_PAGE_SIZE,
-                    }
-                },
-                "query": "query GetSearchProducts($searchInput: SearchInput!) { search(input: $searchInput) { products { productId } } }"
-            }
-            
-            response = httpx_client.post(
-                graphql_url,
-                json=graphql_payload,
-                timeout=10.0,
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                skus = _extract_skus_from_api_response(data)
-                if skus:
-                    return skus
-        
-        except Exception:
-            pass
-        
-        # Try REST API endpoint
-        try:
-            api_url = "https://www.homedepot.com/api/v1/products"
-            
-            api_params = {
-                "offset": (page - 1) * API_PAGE_SIZE,
-                "limit": API_PAGE_SIZE,
-            }
-            
-            response = httpx_client.get(api_url, params=api_params, timeout=10.0)
-            
-            if response.status_code == 200:
-                data = response.json()
-                skus = _extract_skus_from_api_response(data)
-                if skus:
-                    return skus
-        
-        except Exception:
-            pass
-        
-        return []
-    
-    except Exception:
-        return []
+    logger.debug("Skipping guessed API endpoints (disabled for MVP)")
+    return []
 
 
 def _extract_skus_from_api_response(data: dict) -> list[str]:
